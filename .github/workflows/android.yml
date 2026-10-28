@@ -1,0 +1,103 @@
+name: Android APK
+
+# main dalına her push'ta (veya Actions sekmesinden elle) APK derler.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  GODOT_VERSION: "4.6.2"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # Godot + dışa aktarma şablonları (~1 GB) önbelleğe alınır; ilk derlemeden sonra hızlanır.
+      - name: Godot önbelleği
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/godot
+            ~/.local/share/godot/export_templates
+          key: godot-${{ env.GODOT_VERSION }}
+
+      - name: Godot ve şablonları indir
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          BASE=https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable
+          mkdir -p ~/godot ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
+          wget -q $BASE/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip
+          unzip -q Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip -d ~/godot
+          mv ~/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64 ~/godot/godot
+          wget -q $BASE/Godot_v${GODOT_VERSION}-stable_export_templates.tpz
+          unzip -q Godot_v${GODOT_VERSION}-stable_export_templates.tpz -d /tmp/tpl
+          mv /tmp/tpl/templates/* ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable/
+
+      # Android SDK GitHub sunucusunda hazır geliyor; Godot'a yerini ve imza anahtarını söylüyoruz.
+      - name: Godot editör ayarları
+        run: |
+          mkdir -p ~/.config/godot
+          KS="$GITHUB_WORKSPACE/tools/debug.keystore"
+          for f in editor_settings-4.tres "editor_settings-${GODOT_VERSION%.*}.tres"; do
+            cat > ~/.config/godot/$f <<EOF
+          [gd_resource type="EditorSettings" format=3]
+
+          [resource]
+          export/android/android_sdk_path = "$ANDROID_HOME"
+          export/android/java_sdk_path = "$JAVA_HOME"
+          export/android/debug_keystore = "$KS"
+          export/android/debug_keystore_user = "androiddebugkey"
+          export/android/debug_keystore_pass = "android"
+          EOF
+          done
+          sed -i 's/^ *//' ~/.config/godot/editor_settings-*.tres
+          echo "GODOT_ANDROID_KEYSTORE_DEBUG_PATH=$KS" >> $GITHUB_ENV
+          echo "GODOT_ANDROID_KEYSTORE_DEBUG_USER=androiddebugkey" >> $GITHUB_ENV
+          echo "GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD=android" >> $GITHUB_ENV
+
+      # Her derlemenin sürüm kodu artar; telefona eskisinin üzerine kurulabilir.
+      - name: Sürüm kodu
+        run: sed -i "s/^version\/code=.*/version\/code=${{ github.run_number }}/" export_presets.cfg
+
+      - name: Testler
+        run: |
+          ~/godot/godot --headless --path . --import
+          ~/godot/godot --headless --path . -s tests/sim_test.gd
+          ~/godot/godot --headless --path . -s tests/scene_smoke_test.gd
+
+      - name: APK derle
+        run: |
+          mkdir -p build
+          ~/godot/godot --headless --path . --export-debug "Android" build/fetih-debug.apk
+          ls -la build
+          test -s build/fetih-debug.apk
+
+      - name: APK'yı Actions'a yükle
+        uses: actions/upload-artifact@v4
+        with:
+          name: fetih-debug-${{ github.run_number }}
+          path: build/fetih-debug.apk
+
+      # "son-surum" adlı sürümü her seferinde yenisiyle değiştirir; telefondan tek linkle indirilir.
+      - name: Son sürümü yayınla
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete son-surum --yes --cleanup-tag || true
+          gh release create son-surum build/fetih-debug.apk \
+            --title "Son derleme #${{ github.run_number }}" \
+            --notes "Commit: ${{ github.sha }}" \
+            --prerelease

@@ -1,0 +1,39 @@
+; Engine configuration file.
+; Godot editörü bu dosyayı kendisi de günceller.
+
+config_version=5
+
+[application]
+
+config/name="Fetih"
+config/description="state.io tarzı sürükle-bırak strateji oyunu"
+config/version="0.1.0"
+run/main_scene="res://scenes/main_menu.tscn"
+config/quit_on_go_back=false
+config/features=PackedStringArray("4.6", "Mobile")
+config/icon="res://icon.svg"
+
+[autoload]
+
+SaveData="*res://scripts/autoload/save_data.gd"
+Session="*res://scripts/autoload/session.gd"
+
+[display]
+
+window/size/viewport_width=720
+window/size/viewport_height=1280
+window/size/window_width_override=405
+window/size/window_height_override=720
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+window/handheld/orientation=1
+
+[input_devices]
+
+pointing/emulate_touch_from_mouse=true
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+environment/defaults/default_clear_color=Color(0.082, 0.102, 0.2, 1)
