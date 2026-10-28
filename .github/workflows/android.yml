@@ -14,7 +14,7 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -23,6 +23,12 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+
+      # Godot'un APK imzalamak için ihtiyaç duyduğu Android SDK parçaları.
+      - name: Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: "platform-tools build-tools;35.0.1 platforms;android-35"
 
       # Godot + dışa aktarma şablonları (~1 GB) önbelleğe alınır; ilk derlemeden sonra hızlanır.
       - name: Godot önbelleği
@@ -81,9 +87,18 @@ jobs:
       - name: APK derle
         run: |
           mkdir -p build
-          ~/godot/godot --headless --path . --export-debug "Android" build/fetih-debug.apk
+          echo "SDK: $ANDROID_HOME"; ls "$ANDROID_HOME" "$ANDROID_HOME/build-tools" || true
+          set +e
+          ~/godot/godot --headless --path . --export-debug "Android" build/fetih-debug.apk 2>&1 | tee export.log
+          set -e
+          if [ ! -s build/fetih-debug.apk ]; then
+            # Hata satırlarını GitHub "annotation" olarak göster (günlük indirmeden okunabilsin).
+            grep -iE "error|invalid|missing|unable|cannot|failed" export.log | grep -v '%' | head -20 | while read -r line; do
+              echo "::error title=APK derleme::$line"
+            done
+            exit 1
+          fi
           ls -la build
-          test -s build/fetih-debug.apk
 
       - name: APK'yı Actions'a yükle
         uses: actions/upload-artifact@v4
