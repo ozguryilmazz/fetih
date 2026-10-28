@@ -10,7 +10,7 @@ func _ready() -> void:
 	var box := UIKit.screen(self, "Ayarlar")
 
 	_preview = IconPreview.new()
-	_preview.custom_minimum_size = Vector2(0, 120)
+	_preview.custom_minimum_size = Vector2(0, 100)
 	_preview.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	box.add_child(_preview)
 
@@ -34,7 +34,7 @@ func _ready() -> void:
 	for i in GameConfig.PALETTE_HEX.size():
 		var idx := i
 		var c := IconPreview.new()
-		c.custom_minimum_size = Vector2(0, 92)
+		c.custom_minimum_size = Vector2(0, 84)
 		c.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		c.color = GameConfig.color(i)
 		c.icon = -1
@@ -54,7 +54,7 @@ func _ready() -> void:
 	for i in GameConfig.ICON_NAMES.size():
 		var idx := i
 		var c := IconPreview.new()
-		c.custom_minimum_size = Vector2(0, 100)
+		c.custom_minimum_size = Vector2(0, 88)
 		c.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		c.icon = i
 		c.pressed.connect(func():
@@ -64,9 +64,23 @@ func _ready() -> void:
 		icons.add_child(c)
 		_icon_buttons.append(c)
 
+	var vib := UIKit.button("", func(): pass, 80)
+	vib.text = _vib_text()
+	vib.pressed.connect(func():
+		SaveData.vibration = not SaveData.vibration
+		SaveData.save()
+		vib.text = _vib_text()
+		if SaveData.vibration and OS.has_feature("mobile"):
+			Input.vibrate_handheld(40, 0.6))
+	box.add_child(vib)
+
 	box.add_child(UIKit.spacer())
-	box.add_child(UIKit.button("Geri", func(): Session.go("main_menu")))
+	box.add_child(UIKit.button("Geri", func(): Session.go("main_menu"), 84))
 	_refresh()
+
+
+func _vib_text() -> String:
+	return "Titreşim: Açık" if SaveData.vibration else "Titreşim: Kapalı"
 
 
 func _refresh() -> void:

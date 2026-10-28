@@ -6,6 +6,11 @@ const SCENES := ["main_menu", "level_select", "shop", "settings", "multiplayer"]
 
 
 func _initialize() -> void:
+	# Bir betik derlenemezse test takılmasın, hata versin.
+	create_timer(60.0).timeout.connect(func():
+		print("  HATA zaman aşımı (bir ekran açılamadı)")
+		print("SONUC: HATA")
+		quit(1))
 	_run.call_deferred()
 
 

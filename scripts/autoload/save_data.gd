@@ -11,7 +11,8 @@ var icon_index := 0
 var gold := 0
 ## Açılmış en yüksek bölüm.
 var unlocked_level := 1
-var upgrades := {"production": 0, "speed": 0, "start": 0}
+var upgrades := {"production": 0, "speed": 0, "start": 0, "road": 0}
+var vibration := true
 
 
 func _ready() -> void:
@@ -25,6 +26,7 @@ func load_data() -> void:
 		player_name = cf.get_value("player", "name", player_name)
 		color_index = cf.get_value("player", "color", color_index)
 		icon_index = cf.get_value("player", "icon", icon_index)
+		vibration = cf.get_value("settings", "vibration", true)
 		gold = cf.get_value("progress", "gold", 0)
 		unlocked_level = cf.get_value("progress", "level", 1)
 		for key in upgrades.keys():
@@ -40,6 +42,7 @@ func save() -> void:
 	cf.set_value("player", "name", player_name)
 	cf.set_value("player", "color", color_index)
 	cf.set_value("player", "icon", icon_index)
+	cf.set_value("settings", "vibration", vibration)
 	cf.set_value("progress", "gold", gold)
 	cf.set_value("progress", "level", unlocked_level)
 	for key in upgrades.keys():

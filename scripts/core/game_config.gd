@@ -47,8 +47,9 @@ const UPGRADES := {
 	"production": {"name": "Üretim Hızı", "desc": "Üslerin %6 daha hızlı asker üretir", "max": 10, "base_cost": 100},
 	"speed": {"name": "Asker Hızı", "desc": "Askerlerin %5 daha hızlı yürür", "max": 10, "base_cost": 100},
 	"start": {"name": "Başlangıç Gücü", "desc": "Başlangıç üssüne +3 asker", "max": 10, "base_cost": 80},
+	"road": {"name": "Yol Savaşı", "desc": "Yolda çarpışınca her kolun +1 asker avantajlı (15'e 15 → 1 askerin sağ kalır)", "max": 10, "base_cost": 120},
 }
-const UPGRADE_ORDER := ["production", "speed", "start"]
+const UPGRADE_ORDER := ["production", "speed", "start", "road"]
 
 
 static func color(index: int) -> Color:
@@ -71,6 +72,11 @@ static func speed_mult(level: int) -> float:
 
 static func start_bonus(level: int) -> int:
 	return 3 * level
+
+
+## Yol çarpışmasında kol başına kaç askerlik avantaj (kademe başına +1).
+static func road_bonus(level: int) -> int:
+	return level
 
 
 ## Solo bölümlerin zorluk eğrisi.

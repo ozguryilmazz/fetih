@@ -10,8 +10,11 @@ state.io tarzı, sürükle-bırak strateji oyunu. Godot 4.6, Android, 2D.
   - İlk hedefe değdikten sonra üzerinden geçtiğin her üs **hedef** olur.
   - Parmağını kaldırınca her kaynak askerini hedeflere **eşit böler** (100 asker, 2 hedef → 50 + 50).
   - Sadece kendi üslerinden geçip bırakırsan son üs hedef sayılır (takviye).
+- **Asker kolları:** askerler sıra sıra yürür, hedefe tek tek girer.
+- **Yol çarpışması:** rakip kollar yolda karşılaşınca durup birbirini eritir (15'e 15 → ikisi de yok olur). Kesişen yollarda vurulan kol ikiye bölünür.
+- **Efektler ve titreşim:** çarpışma kıvılcımı, isabet, ele geçirme dalgası, ekran sarsıntısı; titreşim Ayarlar'dan kapatılabilir.
 - **Solo mod:** bot'a karşı bölümler, her maçta rastgele harita, bölüm ilerledikçe zorluk artar (4. bölümden itibaren 2 bot).
-- **Altın ve mağaza:** kazanılan her bölüm altın verir; altınla Üretim Hızı, Asker Hızı ve Başlangıç Gücü alınır.
+- **Altın ve mağaza:** kazanılan her bölüm altın verir; altınla Üretim Hızı, Asker Hızı, Başlangıç Gücü ve Yol Savaşı (yol çarpışmalarında kademe başına +1 asker avantajı) alınır.
 - **Ayarlar:** oyuncu adı, renk ve ikon (ikonlar şimdilik basit şekiller).
 - **Kayıt:** her şey cihazda saklanır (`user://save.cfg`), hesap yok.
 - **Çok oyunculu ekran:** arayüz hazır, online bağlantı henüz yok (sıradaki adım).

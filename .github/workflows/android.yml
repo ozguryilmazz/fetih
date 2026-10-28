@@ -81,8 +81,8 @@ jobs:
       - name: Testler
         run: |
           ~/godot/godot --headless --path . --import
-          ~/godot/godot --headless --path . -s tests/sim_test.gd
-          ~/godot/godot --headless --path . -s tests/scene_smoke_test.gd
+          timeout 300 ~/godot/godot --headless --path . -s tests/sim_test.gd
+          timeout 120 ~/godot/godot --headless --path . -s tests/scene_smoke_test.gd
 
       - name: APK derle
         run: |
