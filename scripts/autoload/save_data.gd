@@ -18,6 +18,10 @@ var stars := {}
 ## Günlük ödül: son alındığı gün (YYYY-MM-DD) ve serideki gün (1..7).
 var daily_last := ""
 var daily_streak := 0
+## Hayatta kalma rekorları
+var survival_best := 0.0
+var survival_best_wave := 0
+var survival_wins := 0
 
 
 func _ready() -> void:
@@ -41,6 +45,9 @@ func load_data() -> void:
 				stars[int(key)] = int(cf.get_value("stars", key, 0))
 		daily_last = cf.get_value("daily", "last", "")
 		daily_streak = cf.get_value("daily", "streak", 0)
+		survival_best = cf.get_value("survival", "best", 0.0)
+		survival_best_wave = cf.get_value("survival", "best_wave", 0)
+		survival_wins = cf.get_value("survival", "wins", 0)
 		unlocked_level = mini(unlocked_level, GameConfig.MAX_LEVEL)
 	if player_id == "":
 		player_id = _new_id()
@@ -62,6 +69,9 @@ func save() -> void:
 		cf.set_value("stars", str(level), stars[level])
 	cf.set_value("daily", "last", daily_last)
 	cf.set_value("daily", "streak", daily_streak)
+	cf.set_value("survival", "best", survival_best)
+	cf.set_value("survival", "best_wave", survival_best_wave)
+	cf.set_value("survival", "wins", survival_wins)
 	cf.save(PATH)
 
 
@@ -144,5 +154,20 @@ func claim_daily() -> int:
 	gold += g
 	daily_streak = day
 	daily_last = today()
+	save()
+	return g
+
+
+# ---------------------------------------------------------------- hayatta kalma
+
+## Maç sonucunu kaydeder, verilen mağaza altınını döndürür.
+func record_survival(time_sec: float, waves: int, won: bool) -> int:
+	var g := GameConfig.survival_reward(time_sec, won)
+	gold += g
+	if time_sec > survival_best:
+		survival_best = time_sec
+	survival_best_wave = maxi(survival_best_wave, waves)
+	if won:
+		survival_wins += 1
 	save()
 	return g

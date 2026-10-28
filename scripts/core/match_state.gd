@@ -20,10 +20,14 @@ const SOLDIERS_PER_LANE := 12
 ## İki rakip askerin çarpışmış sayılacağı mesafe (piksel).
 const CLASH_RANGE := 13.0
 
-## {id, name, color, icon, bot, prod, speed, start_bonus, road}
+## {id, name, color, icon, bot, prod, speed, start_bonus, road, gold, pb, sb}
+##  gold: maç altını (hayatta kalma), pb/sb: kışlalardan gelen üretim/hız bonusu
 var players: Array = []
-## {id, pos: Vector2, owner, troops: float, type}
+## {id, pos: Vector2, owner, troops: float, type, [level], [elite]}
+##  level: kışla seviyesi (1..5), elite: madenin kendi ürettiği 2 güçlü askerler
 var bases: Array = []
+## Hayatta kalma modu: maç altını, kışla/maden inşası açık.
+var economy := false
 ## Yoldaki asker kolları:
 ## {id, owner, from, to, n, f, lanes, d, shield, dist, s0, s1, fighting}
 ##  n: koldaki asker numaralarının üst sınırı, f: önden eksilen (varan/ölen) asker sayısı
@@ -48,6 +52,9 @@ static func make_player(id: int, pname: String, color_index: int, icon: int, is_
 		"speed": GameConfig.speed_mult(upgrades.get("speed", 0)),
 		"start_bonus": GameConfig.start_bonus(upgrades.get("start", 0)),
 		"road": GameConfig.road_bonus(upgrades.get("road", 0)),
+		"gold": 0.0,
+		"pb": 0.0,
+		"sb": 0.0,
 	}
 
 
@@ -74,7 +81,28 @@ func base_type(b: Dictionary) -> Dictionary:
 
 
 func troop_speed(pid: int) -> float:
-	return GameConfig.TROOP_SPEED * float(players[pid]["speed"])
+	return GameConfig.TROOP_SPEED * float(players[pid]["speed"]) * (1.0 + float(players[pid].get("sb", 0.0)))
+
+
+## Bir üssün saniyedeki üretimi (sahibinin güçlendirmeleri ve kışla bonusu dahil).
+func base_growth(b: Dictionary) -> float:
+	if b["owner"] == NEUTRAL:
+		return 0.0
+	var g: float = base_type(b)["growth"]
+	if b["type"] == "barracks":
+		g = GameConfig.barracks_growth(b.get("level", 1))
+	var p: Dictionary = players[b["owner"]]
+	return g * float(p["prod"]) * (1.0 + float(p.get("pb", 0.0)))
+
+
+## Üssü almak için gereken (savunma çarpanlı) asker gücü.
+func base_strength(b: Dictionary) -> float:
+	return (b["troops"] + b.get("elite", 0.0) * GameConfig.ELITE_POWER) * float(base_type(b)["defense"])
+
+
+## Maden askerleri saldıramaz; düşman kalesi de asker göndermez (dalgaları o çıkarır).
+static func can_send_from(b: Dictionary) -> bool:
+	return b["type"] != "mine" and b["type"] != "citadel"
 
 
 static func group_count(g: Dictionary) -> int:
@@ -127,10 +155,12 @@ func alive_players() -> Array:
 ## Saldırganın, `travel_time` saniye sonra varacağı hedefi alması için
 ## göndermesi gereken asker sayısı (tahmini).
 func troops_needed(target: Dictionary, travel_time: float, attacker: int) -> float:
+	if target.get("shielded", false):
+		return INF
 	var bt := base_type(target)
-	var tr: float = target["troops"]
+	var tr: float = target["troops"] + target.get("elite", 0.0) * GameConfig.ELITE_POWER
 	if target["owner"] != NEUTRAL and tr < bt["capacity"]:
-		tr = minf(bt["capacity"], tr + bt["growth"] * float(players[target["owner"]]["prod"]) * travel_time)
+		tr = minf(bt["capacity"], tr + base_growth(target) * travel_time)
 	for g in groups:
 		if g["to"] != target["id"]:
 			continue
@@ -145,13 +175,24 @@ func troops_needed(target: Dictionary, travel_time: float, attacker: int) -> flo
 
 func step(dt: float) -> void:
 	time += dt
+	if economy:
+		_update_economy(dt)
 	for b in bases:
 		if b["owner"] == NEUTRAL:
 			continue
 		var bt := base_type(b)
 		var cap: float = bt["capacity"]
+		if b["type"] == "barracks":
+			cap = GameConfig.barracks_capacity(b.get("level", 1))
+		if b["type"] == "mine":
+			# Maden sadece kendi (2 güçlü) savunma askerini üretir.
+			var ecap := GameConfig.mine_capacity(b.get("level", 1))
+			b["elite"] = minf(ecap, b.get("elite", 0.0) + base_growth(b) * dt)
+			if b["troops"] > cap:
+				b["troops"] = maxf(cap, b["troops"] - GameConfig.OVERFLOW_DECAY * dt)
+			continue
 		if b["troops"] < cap:
-			b["troops"] = minf(cap, b["troops"] + bt["growth"] * float(players[b["owner"]]["prod"]) * dt)
+			b["troops"] = minf(cap, b["troops"] + base_growth(b) * dt)
 		elif b["troops"] > cap:
 			b["troops"] = maxf(cap, b["troops"] - GameConfig.OVERFLOW_DECAY * dt)
 
@@ -172,6 +213,82 @@ func apply_command(cmd: Dictionary) -> void:
 	match cmd.get("type", ""):
 		"send":
 			_send(int(cmd["owner"]), cmd["sources"], cmd["targets"])
+		"build":
+			build(int(cmd["owner"]), int(cmd["base"]), String(cmd["kind"]))
+
+
+# ---------------------------------------------------------------- ekonomi (hayatta kalma)
+
+## Altın birikir; kışlaların bonusları hesaplanır (tavanlı).
+func _update_economy(dt: float) -> void:
+	var mine_gold := {}
+	var pb := {}
+	var sb := {}
+	for b in bases:
+		var o: int = b["owner"]
+		if o == NEUTRAL:
+			continue
+		if b["type"] == "mine":
+			mine_gold[o] = mine_gold.get(o, 0.0) + GameConfig.mine_gold(b.get("level", 1))
+		elif b["type"] == "barracks":
+			var lv: Array = GameConfig.BARRACKS_LEVELS[b.get("level", 1) - 1]
+			pb[o] = pb.get(o, 0.0) + lv[2]
+			sb[o] = sb.get(o, 0.0) + lv[3]
+	for p in players:
+		var pid: int = p["id"]
+		p["gold"] = float(p.get("gold", 0.0)) + dt * (GameConfig.SURVIVAL_GOLD_RATE + mine_gold.get(pid, 0.0))
+		p["pb"] = minf(pb.get(pid, 0.0), GameConfig.MAX_PROD_BONUS)
+		p["sb"] = minf(sb.get(pid, 0.0), GameConfig.MAX_SPEED_BONUS)
+
+
+## Bu üste şu an yapılabilecek inşaatın fiyatı; yapılamıyorsa -1.
+## kind: "barracks" / "mine" (normal üs dönüşür), "upgrade" (kışla veya maden seviye atlar)
+## Aynı türden her yeni bina EXTRA_BUILDING_COST oranında pahalanır.
+func build_cost(owner: int, base_id: int, kind: String) -> int:
+	if not economy or base_id < 0 or base_id >= bases.size():
+		return -1
+	var b: Dictionary = bases[base_id]
+	if b["owner"] != owner:
+		return -1
+	var lv: int = b.get("level", 1)
+	match kind:
+		"barracks", "mine":
+			if b["type"] != "normal":
+				return -1
+			var have := bases.filter(func(x): return x["owner"] == owner and x["type"] == kind).size()
+			var base_cost: int = GameConfig.barracks_cost(1) if kind == "barracks" else GameConfig.MINE_LEVELS[0][0]
+			return int(round(base_cost * (1.0 + GameConfig.EXTRA_BUILDING_COST * have)))
+		"upgrade":
+			if b["type"] == "barracks" and lv < GameConfig.BARRACKS_LEVELS.size():
+				return GameConfig.barracks_cost(lv + 1)
+			if b["type"] == "mine" and lv < GameConfig.MINE_LEVELS.size():
+				return GameConfig.MINE_LEVELS[lv][0]
+	return -1
+
+
+func build(owner: int, base_id: int, kind: String) -> bool:
+	var cost := build_cost(owner, base_id, kind)
+	if cost < 0 or float(players[owner]["gold"]) < cost:
+		return false
+	players[owner]["gold"] -= cost
+	var b: Dictionary = bases[base_id]
+	match kind:
+		"barracks":
+			b["type"] = "barracks"
+			b["level"] = 1
+		"mine":
+			b["type"] = "mine"
+			b["level"] = 1
+			b["elite"] = 0.0
+		"upgrade":
+			b["level"] = b.get("level", 1) + 1
+	events.append({"type": "build", "base": base_id, "owner": owner, "kind": kind})
+	return true
+
+
+## Hayatta kalma dalgası: üsten asker düşmeden, kaynaktan hedefe yeni bir kol çıkar.
+func spawn_wave(owner: int, from_id: int, to_id: int, count: int) -> void:
+	_spawn_group(owner, from_id, to_id, count)
 
 
 ## Her kaynak üs askerlerini (SEND_FRACTION kadarını) hedeflere EŞİT böler.
@@ -190,12 +307,17 @@ func _send(owner: int, sources: Array, targets: Array) -> void:
 			continue
 		used_sources.append(si)
 		var b: Dictionary = bases[si]
-		if b["owner"] != owner:
+		if b["owner"] != owner or not can_send_from(b):
 			continue
 		var my_targets := tgts.filter(func(x): return x != si)
 		if my_targets.is_empty():
 			continue
-		var total := int(floor(b["troops"] * GameConfig.SEND_FRACTION))
+		var fraction := GameConfig.SEND_FRACTION
+		if b["type"] == "keep":
+			fraction = GameConfig.FORTRESS_SEND_FRACTION
+		var total := int(floor(b["troops"] * fraction))
+		if b["type"] == "keep":
+			total = mini(total, int(floor(b["troops"] - GameConfig.KEEP_MIN_GARRISON)))
 		if total <= 0:
 			continue
 		var n := my_targets.size()
@@ -237,13 +359,29 @@ func _arrive_one(g: Dictionary) -> void:
 		b["troops"] += 1.0
 		events.append({"type": "reinforce", "base": b["id"], "owner": g["owner"], "pos": pos})
 		return
+	if b.get("shielded", false):
+		# Kalkanlı üs hasar almaz; gelen asker kalkana çarpıp yok olur.
+		events.append({"type": "shield", "base": b["id"], "owner": g["owner"], "pos": pos})
+		return
 	var defense: float = base_type(b)["defense"]
+	# Önce normal askerler ölür, sonra madenin 2 güçlü askerleri.
 	b["troops"] -= 1.0 / defense
+	if b["troops"] < 0.0 and b.get("elite", 0.0) > 0.0:
+		b["elite"] += b["troops"] / GameConfig.ELITE_POWER
+		b["troops"] = 0.0
+		if b["elite"] < 0.0:
+			b["troops"] = b["elite"] * GameConfig.ELITE_POWER
+			b["elite"] = 0.0
 	events.append({"type": "hit", "base": b["id"], "owner": g["owner"], "pos": pos})
 	if b["troops"] < 0.0:
 		var old: int = b["owner"]
 		b["owner"] = g["owner"]
 		b["troops"] = -b["troops"] * defense
+		# Ele geçirilen kışla ve maden normal üsse döner.
+		if b["type"] == "barracks" or b["type"] == "mine":
+			b["type"] = "normal"
+			b.erase("level")
+			b.erase("elite")
 		events.append({"type": "capture", "base": b["id"], "from": old, "to": g["owner"], "pos": b["pos"]})
 
 
@@ -332,12 +470,13 @@ func setup_dict() -> Dictionary:
 	var bs: Array = []
 	for b in bases:
 		bs.append({"x": b["pos"].x, "y": b["pos"].y, "o": b["owner"], "n": b["troops"], "k": b["type"]})
-	return {"players": players, "bases": bs}
+	return {"players": players, "bases": bs, "economy": economy}
 
 
 static func from_setup(d: Dictionary) -> MatchState:
 	var s := MatchState.new()
 	s.players = d["players"]
+	s.economy = d.get("economy", false)
 	for i in d["bases"].size():
 		var b: Dictionary = d["bases"][i]
 		s.bases.append({"id": i, "pos": Vector2(b["x"], b["y"]), "owner": int(b["o"]), "troops": float(b["n"]), "type": b["k"]})
@@ -348,18 +487,30 @@ static func from_setup(d: Dictionary) -> MatchState:
 func snapshot() -> Dictionary:
 	var bs: Array = []
 	for b in bases:
-		bs.append([b["owner"], snappedf(b["troops"], 0.1)])
+		bs.append([b["owner"], snappedf(b["troops"], 0.1), b["type"], b.get("level", 0), snappedf(b.get("elite", 0.0), 0.1), b.get("shielded", false)])
 	var gs: Array = []
 	for g in groups:
 		gs.append([g["id"], g["owner"], g["from"], g["to"], g["n"], g["f"], g["lanes"], snappedf(g["d"], 0.1), g["shield"]])
-	return {"t": time, "b": bs, "g": gs}
+	return {"t": time, "b": bs, "g": gs, "gold": players.map(func(p): return snappedf(p.get("gold", 0.0), 0.1))}
 
 
 func apply_snapshot(d: Dictionary) -> void:
 	time = d["t"]
 	for i in d["b"].size():
-		bases[i]["owner"] = int(d["b"][i][0])
-		bases[i]["troops"] = float(d["b"][i][1])
+		var e: Array = d["b"][i]
+		var b: Dictionary = bases[i]
+		b["owner"] = int(e[0])
+		b["troops"] = float(e[1])
+		b["type"] = e[2]
+		b.erase("level")
+		b.erase("elite")
+		if b["type"] == "barracks" or b["type"] == "mine":
+			b["level"] = int(e[3])
+		if b["type"] == "mine":
+			b["elite"] = float(e[4])
+		b["shielded"] = e.size() > 5 and e[5]
+	for i in d.get("gold", []).size():
+		players[i]["gold"] = float(d["gold"][i])
 	groups.clear()
 	for e in d["g"]:
 		groups.append(_make_group(int(e[0]), int(e[1]), int(e[2]), int(e[3]),

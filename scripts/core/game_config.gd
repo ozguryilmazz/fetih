@@ -33,6 +33,16 @@ const BASE_TYPES := {
 	"normal": {"name": "Normal", "growth": 1.0, "capacity": 60, "defense": 1.0, "radius": 42.0},
 	## Boss'un ana üssü: büyük, hızlı üretir, dayanıklı.
 	"fortress": {"name": "Kale", "growth": 1.4, "capacity": 120, "defense": 1.4, "radius": 54.0},
+	## Hayatta kalma modu: oyuncunun kalesi. Düşerse oyun biter; askerinin en fazla
+	## yarısını gönderebilir (gerisi garnizon).
+	"keep": {"name": "Kale", "growth": 1.4, "capacity": 150, "defense": 2.0, "radius": 54.0},
+	## Hayatta kalma modu: rakibin ana kalesi. Asker göndermez (dalgaları o çıkarır),
+	## garnizonu büyür, savunması çok yüksektir. Alınırsa zafer.
+	"citadel": {"name": "Düşman Kalesi", "growth": 4.0, "capacity": 400, "defense": 2.5, "radius": 60.0},
+	## Hayatta kalma modu: kışla (üretimi seviyeye göre, bkz. barracks_growth).
+	"barracks": {"name": "Kışla", "growth": 1.5, "capacity": 80, "defense": 1.0, "radius": 44.0},
+	## Hayatta kalma modu: altın madeni. growth/capacity = madenin kendi (2 güçlü) askerleri.
+	"mine": {"name": "Altın Madeni", "growth": 0.5, "capacity": 30, "defense": 1.0, "radius": 42.0},
 }
 
 const PALETTE_HEX := [
@@ -165,3 +175,79 @@ static func stars_for(params: Dictionary, time_sec: float, bases_lost: int) -> i
 	if bases_lost <= STAR_LOSS_LIMIT:
 		st += 1
 	return st
+
+
+
+# ---------------------------------------------------------------- hayatta kalma modu
+
+const SURVIVAL_BASES := 22
+const SURVIVAL_ENEMY_SKILL := 0.85
+const SURVIVAL_NEUTRAL_MIN := 15
+const SURVIVAL_NEUTRAL_MAX := 35
+const CITADEL_START := 300.0
+## Düşman kalesi bu dalgaya kadar kalkanlı (alınamaz).
+const CITADEL_SHIELD_WAVES := 10
+## Maç altını: herkese saniyede bu kadar, her maden ayrıca MINE_GOLD ekler.
+const SURVIVAL_GOLD_RATE := 1.0
+## Altın madeni seviyeleri: [fiyat, ek altın/sn, maden askeri tavanı]
+const MINE_LEVELS := [
+	[120, 0.5, 30],
+	[200, 1.0, 40],
+	[350, 1.5, 50],
+]
+## Aynı türden her yeni bina bu oranda pahalanır (2. kışla %50 daha pahalı...).
+const EXTRA_BUILDING_COST := 0.5
+## Kaleden tek seferde gönderilebilecek oran (yarısı garnizon olarak kalır).
+const FORTRESS_SEND_FRACTION := 0.5
+## Kalede her zaman en az bu kadar asker kalır.
+const KEEP_MIN_GARRISON := 20
+## Maden askeri bu kadar güçlü (normal asker 1).
+const ELITE_POWER := 2.0
+## Kışla seviyeleri: [fiyat, kendi üretimi, diğer üslere üretim bonusu, hız bonusu]
+const BARRACKS_LEVELS := [
+	[100, 1.5, 0.10, 0.0],
+	[150, 2.0, 0.20, 0.0],
+	[250, 2.5, 0.30, 0.0],
+	[400, 3.0, 0.40, 0.10],
+	[600, 3.5, 0.50, 0.20],
+]
+## Birden fazla kışlanın bonusları toplanır ama bu tavanları aşamaz.
+const MAX_PROD_BONUS := 1.0
+const MAX_SPEED_BONUS := 0.3
+## Dalgalar: ilk dalga WAVE_FIRST sn'de, sonra her WAVE_INTERVAL sn'de bir.
+const WAVE_FIRST := 60.0
+const WAVE_INTERVAL := 60.0
+const WAVE_BASE := 12
+const WAVE_GROWTH := 9
+## Dalgalar ilerledikçe hızlanarak büyür: + WAVE_ACCEL * (n-1)^2
+const WAVE_ACCEL := 0.5
+## Rakibin üretimi dakikada bu oranda artar.
+const ENEMY_RAMP_PER_MIN := 0.10
+## Mağaza altını ödülü: dayanılan her dakika için + zafer bonusu.
+const SURVIVAL_GOLD_PER_MIN := 10
+const SURVIVAL_WIN_BONUS := 200
+
+
+static func barracks_cost(level: int) -> int:
+	return BARRACKS_LEVELS[level - 1][0]
+
+
+static func mine_gold(level: int) -> float:
+	return MINE_LEVELS[level - 1][1]
+
+
+static func mine_capacity(level: int) -> float:
+	return MINE_LEVELS[level - 1][2]
+
+
+## Kışla kapasitesi seviyeyle artar (70, 80 ... 110).
+static func barracks_capacity(level: int) -> float:
+	return 60.0 + 10.0 * level
+
+
+static func barracks_growth(level: int) -> float:
+	return BARRACKS_LEVELS[level - 1][1]
+
+
+static func survival_reward(time_sec: float, won: bool) -> int:
+	return int(time_sec / 60.0 * SURVIVAL_GOLD_PER_MIN) + (SURVIVAL_WIN_BONUS if won else 0)

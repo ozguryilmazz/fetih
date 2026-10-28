@@ -10,6 +10,9 @@ extends Node2D
 ##  - Sadece kendi üslerinden geçip bırakırsan, son üs hedef sayılır (takviye).
 
 const HIT_PAD := 24.0
+## Basılı tutma ile yükseltme menüsü açılması için süre (ms) ve izin verilen kayma (px).
+const LONG_PRESS_MS := 450
+const LONG_PRESS_SLOP := 18.0
 const SOLDIER_R := 5.2
 const MAX_PARTICLES := 400
 
@@ -21,6 +24,14 @@ var finished := false
 ## "intro" (hedef kartı), "play", "pause", "end"
 var phase := "intro"
 var bases_lost := 0
+## Hayatta kalma modu (Session.mode == "survival")
+var survival: Survival
+var _banner: Label
+var _banner_time := 0.0
+var _press_base := -1
+var _press_pos := Vector2.ZERO
+var _press_ms := 0
+var _menu_base := -1
 
 var _acc := 0.0
 var _dragging := false
@@ -49,7 +60,10 @@ func _ready() -> void:
 	_font = ThemeDB.fallback_font
 	_rng.randomize()
 	_soldier_tex = _make_soldier_texture()
-	_setup_solo()
+	if Session.mode == "survival":
+		_setup_survival()
+	else:
+		_setup_solo()
 	_build_hud()
 	get_viewport().size_changed.connect(_layout)
 	_layout()
@@ -65,6 +79,16 @@ func _setup_solo() -> void:
 	params = setup["params"]
 
 
+func _setup_survival() -> void:
+	var setup := Survival.create({
+		"name": SaveData.player_name, "color": SaveData.color_index,
+		"icon": SaveData.icon_index, "upgrades": SaveData.upgrades}, randi())
+	state = setup["state"]
+	bots = setup["bots"]
+	survival = setup["survival"]
+	params = {"boss": false, "par": 0}
+
+
 ## Mantıksal 720x1280 haritayı, farklı ekran oranlarında ortala.
 func _layout() -> void:
 	var vis := get_viewport_rect().size
@@ -78,13 +102,19 @@ func _process(delta: float) -> void:
 		_acc += minf(delta, 0.25)
 		while _acc >= GameConfig.SIM_DT:
 			_acc -= GameConfig.SIM_DT
+			if survival:
+				survival.update(state, GameConfig.SIM_DT)
 			for bot in bots:
 				for cmd in bot.update(state, GameConfig.SIM_DT):
 					state.apply_command(cmd)
 			state.step(GameConfig.SIM_DT)
 		_consume_events()
 		_update_hud()
+		_check_long_press()
 		_check_end()
+	if _banner_time > 0.0:
+		_banner_time -= delta
+		_banner.modulate.a = clampf(_banner_time / 0.4, 0.0, 1.0)
 	if phase == "play" or phase == "end":
 		_update_effects(delta)
 	queue_redraw()
@@ -127,6 +157,27 @@ func _consume_events() -> void:
 					bases_lost += 1
 					_vibrate(90, 1.0)
 					_shake(9.0, 0.25)
+			"build":
+				var col := state.player_color(e["owner"])
+				var bp: Vector2 = state.bases[e["base"]]["pos"]
+				_rings.append({"p": bp, "life": 0.6, "max": 0.6, "col": UIKit.ACCENT, "r0": 30.0, "r1": 90.0})
+				_burst(bp, UIKit.ACCENT, 14, 160.0, 0.6, 4.0)
+				_pop[e["base"]] = 0.35
+				if e["owner"] == my_id:
+					_vibrate(30, 0.5)
+			"shield":
+				if _rng.randf() < 0.5:
+					_burst(e["pos"], Color("#8ecbff"), 2, 90.0, 0.3, 3.0)
+			"shield_down":
+				_rings.append({"p": e["pos"], "life": 0.9, "max": 0.9, "col": Color("#8ecbff"), "r0": 60.0, "r1": 200.0})
+				_burst(e["pos"], Color("#8ecbff"), 30, 260.0, 0.8, 5.0)
+				_show_banner("Düşman kalesinin kalkanı düştü!")
+				_vibrate(120, 0.8)
+			"wave":
+				_show_banner("%d. dalga geliyor!" % e["n"])
+				_rings.append({"p": e["pos"], "life": 0.7, "max": 0.7, "col": state.player_color(e["owner"]), "r0": 60.0, "r1": 160.0})
+				_shake(5.0, 0.2)
+				_vibrate(60, 0.7)
 	state.events.clear()
 
 
@@ -181,19 +232,44 @@ func _unhandled_input(event: InputEvent) -> void:
 		var p: Vector2 = make_input_local(event).position
 		if event.pressed:
 			var b := _base_at(p)
+			_finger = p
 			if b >= 0 and state.bases[b]["owner"] == my_id:
-				_dragging = true
-				_sources = [b]
-				_targets = []
-				_finger = p
-				_vibrate(12, 0.3)
-		elif _dragging:
-			_finish_drag()
-	elif event is InputEventScreenDrag and event.index == 0 and _dragging:
+				if survival:
+					_press_base = b
+					_press_pos = p
+					_press_ms = Time.get_ticks_msec()
+				if MatchState.can_send_from(state.bases[b]):
+					_dragging = true
+					_sources = [b]
+					_targets = []
+					_vibrate(12, 0.3)
+		else:
+			_press_base = -1
+			if _dragging:
+				_finish_drag()
+	elif event is InputEventScreenDrag and event.index == 0:
 		_finger = make_input_local(event).position
-		var b := _base_at(_finger)
-		if b >= 0:
-			_touch_base(b)
+		if _press_base >= 0 and _finger.distance_to(_press_pos) > LONG_PRESS_SLOP:
+			_press_base = -1
+		if _dragging:
+			var b := _base_at(_finger)
+			if b >= 0:
+				_touch_base(b)
+
+
+## Hayatta kalma: kendi üssüne kıpırdamadan basılı tutunca yükseltme menüsü açılır.
+func _check_long_press() -> void:
+	if _press_base < 0 or Time.get_ticks_msec() - _press_ms < LONG_PRESS_MS:
+		return
+	var b := _press_base
+	_press_base = -1
+	if state.bases[b]["owner"] != my_id:
+		return
+	_dragging = false
+	_sources = []
+	_targets = []
+	_vibrate(25, 0.5)
+	_open_build_menu(b)
 
 
 func _touch_base(b: int) -> void:
@@ -217,12 +293,16 @@ func _finish_drag() -> void:
 	_targets = []
 
 
+## Dokunulan noktaya en yakın üs (dokunma payıyla birlikte); yoksa -1.
 func _base_at(p: Vector2) -> int:
+	var best := -1
+	var best_d := INF
 	for b in state.bases:
-		var r: float = state.base_type(b)["radius"] + HIT_PAD
-		if p.distance_to(b["pos"]) <= r:
-			return b["id"]
-	return -1
+		var d: float = p.distance_to(b["pos"])
+		if d <= float(state.base_type(b)["radius"]) + HIT_PAD and d < best_d:
+			best_d = d
+			best = b["id"]
+	return best
 
 
 # ---------------------------------------------------------------- çizim
@@ -299,19 +379,57 @@ func _draw_base(b: Dictionary) -> void:
 		c += Vector2(_rng.randf_range(-2.5, 2.5), _rng.randf_range(-2.5, 2.5))
 
 	draw_circle(c + Vector2(0, 5), r, Color(0, 0, 0, 0.3))
-	if b["type"] == "fortress":
+	var kind: String = b["type"]
+	if kind == "fortress" or kind == "keep" or kind == "citadel":
 		_draw_fortress(c, r, col)
 	draw_circle(c, r, col)
 	draw_arc(c, r - 3.0, 0.0, TAU, 48, col.lightened(0.25), 4.0, true)
-	if owner != GameConfig.NEUTRAL:
+	if kind == "barracks":
+		_draw_barracks(c, r, col, b.get("level", 1))
+	elif kind == "mine":
+		_draw_mine(c, r, b.get("level", 1))
+	elif owner != GameConfig.NEUTRAL:
 		IconDraw.draw_icon(self, state.players[owner]["icon"], c, r * 0.6, Color(1, 1, 1, 0.22))
+	if b.get("shielded", false):
+		var pulse := 0.5 + 0.5 * sin(Time.get_ticks_msec() / 300.0)
+		draw_arc(c, r + 16.0, 0.0, TAU, 64, Color(0.55, 0.8, 1.0, 0.35 + 0.3 * pulse), 6.0, true)
+		draw_circle(c, r + 14.0, Color(0.55, 0.8, 1.0, 0.08))
 
 	if _dragging and _sources.has(id):
 		draw_arc(c, r + 8.0, 0.0, TAU, 48, Color.WHITE, 5.0, true)
 	elif _dragging and _targets.has(id):
 		draw_arc(c, r + 8.0, 0.0, TAU, 48, UIKit.ACCENT, 5.0, true)
 
-	_text_centered(str(int(b["troops"])), c, 30, Color.WHITE)
+	if kind == "mine":
+		# Maden: normal + 2 güçlü maden askeri (altın renkte).
+		_text_centered(str(int(b["troops"] + b.get("elite", 0.0))), c, 30, Color("#ffe082"))
+	else:
+		_text_centered(str(int(b["troops"])), c, 30, Color.WHITE)
+
+
+## Kışla: içinde koyu kalkan şekli, altında seviye yıldızları.
+func _draw_barracks(c: Vector2, r: float, col: Color, level: int) -> void:
+	var w := r * 0.95
+	var shield := PackedVector2Array([
+		c + Vector2(-w * 0.5, -w * 0.45), c + Vector2(w * 0.5, -w * 0.45),
+		c + Vector2(w * 0.5, w * 0.05), c + Vector2(0, w * 0.55), c + Vector2(-w * 0.5, w * 0.05)])
+	draw_colored_polygon(shield, col.darkened(0.35))
+	_draw_level_stars(c + Vector2(0, r + 12.0), level, 5)
+
+
+## Altın madeni: altın para, altında seviye yıldızları.
+func _draw_mine(c: Vector2, r: float, level: int) -> void:
+	draw_circle(c, r * 0.62, Color("#c9971c"))
+	draw_arc(c, r * 0.62, 0.0, TAU, 40, Color("#ffe082"), 4.0, true)
+	_draw_level_stars(c + Vector2(0, r + 12.0), level, 3)
+
+
+func _draw_level_stars(c: Vector2, level: int, max_level: int) -> void:
+	var gap := 15.0
+	var x0 := c.x - gap * (max_level - 1) / 2.0
+	for i in max_level:
+		var col := UIKit.ACCENT if i < level else Color(1, 1, 1, 0.2)
+		draw_colored_polygon(IconDraw.star_points(Vector2(x0 + i * gap, c.y), 7.0), col)
 
 
 ## Kale (boss üssü): dişli dış halka ve üstünde taç.
@@ -387,6 +505,8 @@ func _build_hud() -> void:
 	var title := "Bölüm %d" % Session.level
 	if params["boss"]:
 		title += "  ·  BOSS"
+	if survival:
+		title = "Hayatta Kalma"
 	info.add_child(UIKit.label(title, 32))
 	_loss_label = UIKit.label("", 22, UIKit.MUTED)
 	info.add_child(_loss_label)
@@ -396,10 +516,35 @@ func _build_hud() -> void:
 	_time_label.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	_time_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	bar.add_child(_time_label)
+
+	_banner = UIKit.label("", 40, UIKit.ACCENT)
+	_banner.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_banner.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	_banner.offset_top = 170
+	_banner.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_banner.modulate.a = 0.0
+	root.add_child(_banner)
 	_update_hud()
 
 
+func _show_banner(text: String) -> void:
+	_banner.text = text
+	_banner.modulate.a = 1.0
+	_banner_time = 2.2
+
+
 func _update_hud() -> void:
+	if survival:
+		var p: Dictionary = state.players[my_id]
+		var rate := GameConfig.SURVIVAL_GOLD_RATE
+		for b in state.bases:
+			if b["owner"] == my_id and b["type"] == "mine":
+				rate += GameConfig.mine_gold(b.get("level", 1))
+		_time_label.text = _fmt_time(state.time)
+		_loss_label.text = "Altın %d  (+%s/sn)   ·   %d. dalga %s" % [
+			int(p["gold"]), str(snappedf(rate, 0.1)), survival.wave + 1, _fmt_time(survival.seconds_to_next_wave(state))]
+		_loss_label.add_theme_color_override("font_color", UIKit.ACCENT)
+		return
 	var over: bool = state.time > params["par"]
 	_time_label.text = "%s / %s" % [_fmt_time(state.time), _fmt_time(params["par"])]
 	_time_label.add_theme_color_override("font_color", Color("#e57373") if over else UIKit.TEXT)
@@ -437,7 +582,7 @@ func _goals(won: Variant) -> Array:
 # ---------------------------------------------------------------- açılır panolar
 
 ## Yarı saydam arka plan + ortada panel; panelin içeriğini döndürür.
-func _open_overlay() -> VBoxContainer:
+func _open_overlay(dim_alpha := 0.6) -> VBoxContainer:
 	_close_overlay()
 	_overlay_layer = CanvasLayer.new()
 	_overlay_layer.layer = 10
@@ -448,7 +593,7 @@ func _open_overlay() -> VBoxContainer:
 	_overlay_layer.add_child(_overlay)
 
 	var dim := ColorRect.new()
-	dim.color = Color(0, 0, 0, 0.6)
+	dim.color = Color(0, 0, 0, dim_alpha)
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_overlay.add_child(dim)
 
@@ -500,8 +645,77 @@ func _add_goals(box: VBoxContainer, goals: Array) -> void:
 		row.add_child(l)
 
 
+# ---------------------------------------------------------------- yükseltme menüsü
+
+func _open_build_menu(base_id: int) -> void:
+	_menu_base = base_id
+	var b: Dictionary = state.bases[base_id]
+	var box := _open_overlay(0.35)
+	var gold: float = state.players[my_id]["gold"]
+	var kind: String = b["type"]
+	var lv: int = b.get("level", 1)
+	var names := {"normal": "Üs", "barracks": "Kışla", "mine": "Altın Madeni", "keep": "Kale", "fortress": "Kale"}
+	_add_title(box, names.get(kind, "Üs"), 44, UIKit.TEXT)
+	if kind == "barracks" or kind == "mine":
+		var sr := StarRow.new()
+		sr.total = 5 if kind == "barracks" else 3
+		sr.count = lv
+		sr.custom_minimum_size = Vector2(0, 36)
+		box.add_child(sr)
+	_add_title(box, "Altının: %d" % int(gold), 28, UIKit.ACCENT)
+
+	match kind:
+		"normal":
+			_build_option(box, base_id, "barracks", "Kışla kur",
+				"Kendisi %sx asker üretir, diğer tüm üslerine +%%%d üretim" % [
+					str(GameConfig.barracks_growth(1)), int(GameConfig.BARRACKS_LEVELS[0][2] * 100)])
+			_build_option(box, base_id, "mine", "Altın Madeni kur",
+				"+%s altın/sn. 2 güçlü savunma askeri üretir, bu askerler saldıramaz" % str(GameConfig.mine_gold(1)))
+		"barracks":
+			if lv < GameConfig.BARRACKS_LEVELS.size():
+				var nx: Array = GameConfig.BARRACKS_LEVELS[lv]
+				var desc := "Kendisi %sx üretim, diğer üslerine +%%%d üretim" % [str(nx[1]), int(nx[2] * 100)]
+				if nx[3] > 0.0:
+					desc += ", +%%%d asker hızı" % int(nx[3] * 100)
+				_build_option(box, base_id, "upgrade", "%d. seviyeye yükselt" % (lv + 1), desc)
+			else:
+				_add_title(box, "En yüksek seviyede", 28, UIKit.MUTED)
+		"mine":
+			if lv < GameConfig.MINE_LEVELS.size():
+				_build_option(box, base_id, "upgrade", "%d. seviyeye yükselt" % (lv + 1),
+					"+%s altın/sn, en fazla %d maden askeri" % [str(GameConfig.mine_gold(lv + 1)), int(GameConfig.mine_capacity(lv + 1))])
+			else:
+				_add_title(box, "En yüksek seviyede", 28, UIKit.MUTED)
+		_:
+			_add_title(box, "Kale geliştirilemez. Düşerse oyun biter!", 26, UIKit.MUTED)
+	box.add_child(UIKit.button("Kapat", _close_build_menu, 80))
+
+
+func _build_option(box: VBoxContainer, base_id: int, kind: String, title: String, desc: String) -> void:
+	var cost := state.build_cost(my_id, base_id, kind)
+	if cost < 0:
+		return
+	var gold: float = state.players[my_id]["gold"]
+	var btn := UIKit.button("%s  —  %d altın" % [title, cost], func():
+		_issue({"type": "build", "owner": my_id, "base": base_id, "kind": kind})
+		_close_build_menu(), 92)
+	btn.disabled = gold < cost
+	box.add_child(btn)
+	box.add_child(UIKit.label(desc, 22, UIKit.MUTED))
+
+
+func _close_build_menu() -> void:
+	_menu_base = -1
+	_close_overlay()
+
+
+# ---------------------------------------------------------------- giriş / duraklat panoları
+
 func _show_intro() -> void:
 	phase = "intro"
+	if survival:
+		_show_survival_intro()
+		return
 	var box := _open_overlay()
 	_add_title(box, "Bölüm %d" % Session.level, 54, UIKit.TEXT)
 	if params["boss"]:
@@ -526,13 +740,18 @@ func _pause() -> void:
 		return
 	phase = "pause"
 	_dragging = false
+	_menu_base = -1
 	var box := _open_overlay()
 	_add_title(box, "Duraklatıldı", 50, UIKit.TEXT)
-	_add_title(box, "Bölüm %d  ·  %s" % [Session.level, _fmt_time(state.time)], 28, UIKit.MUTED)
-	_add_goals(box, _goals(null))
+	if survival:
+		_add_title(box, "Hayatta Kalma  ·  %s  ·  %d. dalga" % [_fmt_time(state.time), survival.wave], 28, UIKit.MUTED)
+	else:
+		_add_title(box, "Bölüm %d  ·  %s" % [Session.level, _fmt_time(state.time)], 28, UIKit.MUTED)
+		_add_goals(box, _goals(null))
 	box.add_child(UIKit.button("Devam Et", _resume, 100))
 	box.add_child(UIKit.button("Yeniden Başla", func(): Session.go("game")))
-	box.add_child(UIKit.button("Bölümler", func(): Session.go("level_select")))
+	if not survival:
+		box.add_child(UIKit.button("Bölümler", func(): Session.go("level_select")))
 	box.add_child(UIKit.button("Ana Menü", func(): Session.go("main_menu")))
 
 
@@ -545,6 +764,11 @@ func _resume() -> void:
 # ---------------------------------------------------------------- bitiş
 
 func _check_end() -> void:
+	if survival:
+		var res := Survival.result(state)
+		if res != "":
+			_end_survival(res == "win")
+		return
 	var alive := state.alive_players()
 	if not alive.has(my_id):
 		_end(false)
@@ -592,16 +816,68 @@ func _show_end_panel(won: bool, stars: int, gold: int, prev: int) -> void:
 	box.add_child(UIKit.button("Ana Menü", func(): Session.go("main_menu")))
 
 
+# ---------------------------------------------------------------- hayatta kalma panoları
+
+func _show_survival_intro() -> void:
+	var box := _open_overlay()
+	_add_title(box, "Hayatta Kalma", 54, UIKit.TEXT)
+	var lines := [
+		"Saniyede 1 maç altını kazanırsın (mağaza altınından ayrı).",
+		"Kendi üssüne basılı tut: Kışla veya Altın Madeni kur, yükselt.",
+		"Her dakika rakip kalesinden bir saldırı dalgası gelir ve büyür.",
+		"Kalen düşerse oyun biter. %d. dalgadan sonra rakip kalesinin kalkanı düşer: onu alırsan kazanırsın!" % GameConfig.CITADEL_SHIELD_WAVES,
+	]
+	for t in lines:
+		box.add_child(UIKit.label("• " + t, 24, UIKit.TEXT))
+	if SaveData.survival_best > 0.0:
+		_add_title(box, "En iyi: %s  ·  %d. dalga" % [_fmt_time(SaveData.survival_best), SaveData.survival_best_wave], 28, UIKit.ACCENT)
+	box.add_child(UIKit.button("Başla", func():
+		_close_overlay()
+		phase = "play", 100))
+	box.add_child(UIKit.button("Geri", func(): Session.go("main_menu"), 80))
+
+
+func _end_survival(won: bool) -> void:
+	finished = true
+	phase = "end"
+	_dragging = false
+	_press_base = -1
+	_menu_base = -1
+	_vibrate(160 if won else 250, 0.8)
+	var prev_best := SaveData.survival_best
+	var gold := SaveData.record_survival(state.time, survival.wave, won)
+	_show_survival_end.call_deferred(won, gold, state.time > prev_best)
+
+
+func _show_survival_end(won: bool, gold: int, record: bool) -> void:
+	var box := _open_overlay()
+	_add_title(box, "Zafer!" if won else "Kalen Düştü", 58, UIKit.ACCENT if won else UIKit.TEXT)
+	if won:
+		_add_title(box, "Rakip kalesini ele geçirdin.", 28, UIKit.TEXT)
+	_add_title(box, "Dayandığın süre: %s" % _fmt_time(state.time), 34, UIKit.TEXT)
+	_add_title(box, "Atlatılan dalga: %d" % survival.wave, 28, UIKit.MUTED)
+	if record:
+		_add_title(box, "Yeni rekor!", 34, UIKit.ACCENT)
+	else:
+		_add_title(box, "En iyi: %s" % _fmt_time(SaveData.survival_best), 26, UIKit.MUTED)
+	_add_title(box, "+%d altın (mağaza)" % gold, 36, UIKit.ACCENT)
+	box.add_child(UIKit.button("Tekrar Oyna", func(): Session.go("game"), 100))
+	box.add_child(UIKit.button("Ana Menü", func(): Session.go("main_menu")))
+
+
 func _notification(what: int) -> void:
 	match what:
 		NOTIFICATION_WM_GO_BACK_REQUEST:
+			if _menu_base >= 0:
+				_close_build_menu()
+				return
 			match phase:
 				"play":
 					_pause()
 				"pause":
 					_resume()
 				"intro":
-					Session.go("level_select")
+					Session.go("main_menu" if survival else "level_select")
 				_:
 					Session.go("main_menu")
 		NOTIFICATION_APPLICATION_PAUSED, NOTIFICATION_APPLICATION_FOCUS_OUT:

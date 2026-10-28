@@ -12,6 +12,7 @@ func _initialize() -> void:
 	_test_head_on_clash()
 	_test_crossing_clash()
 	_test_levels_and_rewards()
+	_test_survival_rules()
 	_test_bot_matches()
 	print("SONUC: ", "HATA" if _failed else "TAMAM")
 	quit(1 if _failed else 0)
@@ -176,12 +177,107 @@ func _test_levels_and_rewards() -> void:
 	var golds: Array = [1, 2, 3].map(func(st): return GameConfig.level_gold(5, st, 0))
 	_check(golds == [50, 75, 100], "altın: 1★ 50, 2★ 75, 3★ 100 (bulunan: %s)" % [golds])
 	_check(GameConfig.level_gold(10, 3, 0) == 200, "boss bölümü çift altın")
-	_check(GameConfig.level_gold(5, 2, 3) == 15, "geliştirme olmayan tekrar oyunu %%20 altın")
+	_check(GameConfig.level_gold(5, 2, 3) == 15, "geliştirme olmayan tekrar oyunu %20 altın")
 
 	var setup := LevelSetup.create(20, {"name": "P", "color": 1, "icon": 0, "upgrades": {}}, 42)
 	var st: MatchState = setup["state"]
 	var forts := st.bases.filter(func(b): return b["type"] == "fortress" and b["owner"] == 1)
 	_check(st.players.size() == 2 and forts.size() == 1, "boss bölümünde boss tek rakip ve kalesi var")
+
+
+func _survival_state() -> MatchState:
+	var s := MatchState.new()
+	s.economy = true
+	s.players = [_player(0), _player(1)]
+	s.bases = [
+		_base(0, Vector2(100, 300), 0, 40.0), _base(1, Vector2(500, 300), 1, 10.0),
+		_base(2, Vector2(100, 700), 0, 10.0), _base(3, Vector2(500, 700), 0, 10.0),
+		_base(4, Vector2(300, 1000), 0, 10.0),
+	]
+	return s
+
+
+func _test_survival_rules() -> void:
+	print("Hayatta kalma kuralları")
+	var s := _survival_state()
+	_no_production(s)
+	for i in 300:
+		s.step(GameConfig.SIM_DT)
+	_check(absf(s.players[0]["gold"] - 10.0) < 0.1, "10 saniyede 10 maç altını (bulunan: %.1f)" % s.players[0]["gold"])
+
+	s.players[0]["gold"] = 1000.0
+	_check(s.build_cost(0, 2, "barracks") == 100, "1. kışla 100 altın")
+	_check(s.build(0, 2, "barracks"), "kışla kuruldu")
+	_check(s.build_cost(0, 3, "barracks") == 150, "2. kışla %50 pahalı: 150")
+	_check(s.build_cost(0, 2, "upgrade") == 150 and s.build(0, 2, "upgrade") and s.bases[2]["level"] == 2, "kışla 2. seviye: 150 altın")
+	_check(s.build_cost(0, 1, "barracks") == -1, "rakibin üssüne inşaat yapılamaz")
+	s.players[0]["gold"] = 10.0
+	_check(not s.build(0, 3, "mine"), "parası yetmeyince inşaat olmaz")
+
+	# Kışla bonusu: seviye 5 -> +%50 üretim, +%20 hız; iki tane olsa bile tavan +%100 / +%30
+	s.bases[2]["level"] = 5
+	s.bases[3]["type"] = "barracks"
+	s.bases[3]["level"] = 5
+	s.step(GameConfig.SIM_DT)
+	_check(is_equal_approx(s.players[0]["pb"], 1.0) and is_equal_approx(s.players[0]["sb"], 0.3),
+		"iki 5 yıldızlı kışla: bonus tavanı +%%100 üretim, +%%30 hız (bulunan: %.2f, %.2f)" % [s.players[0]["pb"], s.players[0]["sb"]])
+	s.bases[3]["type"] = "normal"
+	s.bases[3].erase("level")
+	s.step(GameConfig.SIM_DT)
+	_check(is_equal_approx(s.players[0]["pb"], 0.5) and is_equal_approx(s.players[0]["sb"], 0.2), "tek 5 yıldızlı kışla: +%50 üretim, +%20 hız")
+
+	# Maden: 2 güçlü asker, gönderilemez, ele geçirilince normal üsse döner.
+	s = _survival_state()
+	_no_production(s)
+	s.players[0]["gold"] = 200.0
+	_check(s.build(0, 4, "mine"), "maden kuruldu")
+	s.bases[4]["elite"] = 10.0
+	s.bases[4]["troops"] = 0.0
+	s.apply_command({"type": "send", "owner": 0, "sources": [4], "targets": [1]})
+	_check(s.groups.is_empty(), "madenden asker gönderilemez")
+	s.bases[1]["troops"] = 19.0
+	s.apply_command({"type": "send", "owner": 1, "sources": [1], "targets": [4]})
+	_run(s, 20.0)
+	_check(s.bases[4]["owner"] == 0 and absf(s.bases[4]["elite"] - 0.5) < 0.01, "19 asker, 10 maden askerini (20 güç) yenemedi")
+	s.bases[1]["owner"] = 1
+	s.bases[1]["troops"] = 5.0
+	s.apply_command({"type": "send", "owner": 1, "sources": [1], "targets": [4]})
+	_run(s, 20.0)
+	_check(s.bases[4]["owner"] == 1 and s.bases[4]["type"] == "normal" and not s.bases[4].has("elite"),
+		"ele geçirilen maden normal üsse döndü")
+
+	# Kale: en fazla yarısı gider, en az 20 kalır. Kalkanlı kale hasar almaz.
+	s = _survival_state()
+	s.bases[0]["type"] = "keep"
+	s.bases[0]["troops"] = 30.0
+	s.apply_command({"type": "send", "owner": 0, "sources": [0], "targets": [2]})
+	_check(_counts(s) == [10], "30 askerli kaleden 10 gider, 20 garnizon kalır (bulunan: %s)" % [_counts(s)])
+	s = _survival_state()
+	_no_production(s)
+	s.bases[1]["type"] = "citadel"
+	s.bases[1]["shielded"] = true
+	s.apply_command({"type": "send", "owner": 0, "sources": [0], "targets": [1]})
+	_run(s, 20.0)
+	_check(s.bases[1]["owner"] == 1 and is_equal_approx(s.bases[1]["troops"], 10.0), "kalkanlı düşman kalesi hasar almadı")
+
+	# Dalgalar ve sonuç
+	var setup := Survival.create({"name": "P", "color": 1, "icon": 0, "upgrades": {}}, 5)
+	var st: MatchState = setup["state"]
+	var sv: Survival = setup["survival"]
+	_check(st.bases.size() == GameConfig.SURVIVAL_BASES and not Survival.fortress_of(st, 0).is_empty()
+		and Survival.fortress_of(st, 1).get("shielded", false), "harita %d üs, iki kale, düşman kalesi kalkanlı" % st.bases.size())
+	var waves := 0
+	while st.time < 61.0:
+		sv.update(st, GameConfig.SIM_DT)
+		st.step(GameConfig.SIM_DT)
+		for e in st.events:
+			if e["type"] == "wave":
+				waves += 1
+		st.events.clear()
+	_check(waves == 1 and sv.wave == 1, "60. saniyede 1. dalga geldi")
+	_check(sv.wave_size(1) == GameConfig.WAVE_BASE and sv.wave_size(10) > sv.wave_size(5) * 2, "dalgalar hızlanarak büyüyor (%d, %d, %d)" % [sv.wave_size(1), sv.wave_size(5), sv.wave_size(10)])
+	Survival.fortress_of(st, 0)["owner"] = 1
+	_check(Survival.result(st) == "lose", "kale düşünce oyun biter")
 
 
 func _test_bot_matches() -> void:

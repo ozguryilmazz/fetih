@@ -19,6 +19,15 @@ state.io tarzı, sürükle-bırak strateji oyunu. Godot 4.6, Android, 2D.
 - **Bot zekâsı:** savunma (düşecek üsse takviye), net değer hesabı ve sabır, risk hesabı (boşalan üssün kaybedilmesi), arkadaki askerleri cepheye toplama. Beceri bölümle artar.
 - **Günlük ödül:** 7 günlük seri (50 → 300 altın); bir gün kaçırılırsa seri başa döner.
 - **Duraklat menüsü:** II düğmesi, Android geri tuşu veya uygulama arka plana geçince.
+- **Hayatta Kalma modu:** 22 üslü harita, iki taraf da kale + 2 üsle başlar.
+  - Maç altını (mağaza altınından ayrı): saniyede 1, madenler ek verir.
+  - Kendi üssüne basılı tut → **Kışla** (100 altın, 5 seviye: 100/150/250/400/600) veya **Altın Madeni** (120, 3 seviye: 120/200/350).
+  - Kışla: kendisi 1,5x–3,5x üretir, diğer tüm üslere +%10…+%50 üretim; 4–5. seviyede +%10/+%20 asker hızı. Bonuslar toplanır, tavan +%100 üretim / +%30 hız.
+  - Maden: +0,5/1/1,5 altın/sn; 2 güçlü savunma askeri üretir (30/40/50), bu askerler saldıramaz.
+  - Aynı türden her yeni bina %50 pahalı. Ele geçirilen kışla/maden normal üsse döner.
+  - Her dakika rakip kalesinden büyüyen bir dalga gelir (her 3. dalga doğrudan kaleye). Rakip üretimi dakikada %10 artar.
+  - Kalenden en fazla askerin yarısı gider, en az 20 garnizon kalır. Kale düşerse oyun biter.
+  - Rakip kalesi 10. dalgaya kadar kalkanlı; sonra alınırsa zafer. Ödül: dakika başına 10 mağaza altını, zaferde +200.
 - **Altın ve mağaza:** kazanılan her bölüm altın verir; altınla Üretim Hızı, Asker Hızı, Başlangıç Gücü ve Yol Savaşı (yol çarpışmalarında kademe başına +1 asker avantajı) alınır.
 - **Ayarlar:** oyuncu adı, renk ve ikon (ikonlar şimdilik basit şekiller).
 - **Kayıt:** her şey cihazda saklanır (`user://save.cfg`), hesap yok.
@@ -34,6 +43,7 @@ scripts/core/           Oyun kuralları — grafikten bağımsız
   map_generator.gd        Rastgele harita
   bot_ai.gd               Yapay zeka
   level_setup.gd          Bölüm kurulumu (bot'lar, boss) — oyun ve zorluk raporu ortak kullanır
+  survival.gd             Hayatta kalma: kurulum, dalgalar, rakip güçlenmesi, otomatik inşaat
   icon_draw.gd            Geçici ikon şekilleri
 scripts/game/game.gd    Oyun ekranı: çizim, dokunmatik giriş, bitiş paneli
 scripts/ui/             Menü, bölümler, mağaza, ayarlar, çok oyunculu
@@ -51,6 +61,7 @@ Zorluk eğrisi bir "oyuncu bot'u" ile 50 bölüm oynatılarak ayarlandı. Deği�
 ```
 godot --headless --path . -s tests/difficulty_report.gd -- 0.85 12        # oyuncu becerisi, bölüm başına maç
 godot --headless --path . -s tests/difficulty_report.gd -- 0.85 20 boss   # sadece boss bölümleri
+godot --headless --path . -s tests/survival_report.gd -- 0.85 12 2        # hayatta kalma: beceri, maç, güçlendirme
 ```
 
 ## Bilgisayarda çalıştırma

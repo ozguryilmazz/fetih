@@ -86,7 +86,7 @@ func _threats(state: MatchState, mine: Array) -> Dictionary:
 		if enemy <= 0.0:
 			continue
 		var bt := state.base_type(b)
-		var grown := minf(bt["capacity"], b["troops"] + bt["growth"] * float(state.players[pid]["prod"]) * eta)
+		var grown := minf(bt["capacity"], b["troops"] + b.get("elite", 0.0) * GameConfig.ELITE_POWER + state.base_growth(b) * eta)
 		var projected := grown + friendly - enemy / float(bt["defense"])
 		if projected < 1.0:
 			out[b["id"]] = {"need": (1.0 - projected) * float(bt["defense"]), "eta": eta}
@@ -101,7 +101,7 @@ func _defend(state: MatchState, mine: Array, threats: Dictionary) -> Dictionary:
 		var target: Dictionary = state.bases[tid]
 		var need: float = threats[tid]["need"] * safety_margin + 2.0
 		var eta: float = threats[tid]["eta"]
-		var helpers := mine.filter(func(h): return h["id"] != tid and not threats.has(h["id"]) and h["troops"] >= 3.0)
+		var helpers := mine.filter(func(h): return h["id"] != tid and not threats.has(h["id"]) and h["troops"] >= 3.0 and MatchState.can_send_from(h))
 		helpers.sort_custom(func(a, b): return a["pos"].distance_to(target["pos"]) < b["pos"].distance_to(target["pos"]))
 		var srcs: Array = []
 		var sum := 0.0
@@ -144,7 +144,7 @@ func _attack(state: MatchState, mine: Array, threats: Dictionary) -> Dictionary:
 		var need := INF
 		for s in by_dist:
 			var avail := floorf(s["troops"])
-			if avail < 4.0:
+			if avail < 4.0 or not MatchState.can_send_from(s):
 				continue
 			if skill > 0.5 and threats.has(s["id"]):
 				continue
@@ -216,7 +216,7 @@ func _consolidate(state: MatchState, mine: Array, threats: Dictionary) -> Dictio
 	var donor := {}
 	var donor_d := front_d + 150.0
 	for b in mine:
-		if b["id"] == front["id"] or threats.has(b["id"]):
+		if b["id"] == front["id"] or threats.has(b["id"]) or not MatchState.can_send_from(b):
 			continue
 		if b["troops"] < float(state.base_type(b)["capacity"]) * 0.8:
 			continue

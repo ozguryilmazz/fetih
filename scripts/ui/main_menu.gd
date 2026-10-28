@@ -9,13 +9,13 @@ func _ready() -> void:
 	var box := UIKit.screen(self, "")
 
 	var preview := IconPreview.new()
-	preview.custom_minimum_size = Vector2(0, 150)
+	preview.custom_minimum_size = Vector2(0, 110)
 	preview.color = GameConfig.color(SaveData.color_index)
 	preview.icon = SaveData.icon_index
 	preview.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	box.add_child(preview)
 
-	var title := UIKit.label("FETİH", 92, UIKit.TEXT)
+	var title := UIKit.label("FETİH", 80, UIKit.TEXT)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(title)
 
@@ -34,12 +34,25 @@ func _ready() -> void:
 		Session.mode = "solo"
 		Session.level = SaveData.unlocked_level
 		Session.go("game"), 110))
+	var surv_text := "Hayatta Kalma"
+	if SaveData.survival_best > 0.0:
+		var t := int(SaveData.survival_best)
+		@warning_ignore("integer_division")
+		surv_text += "  (en iyi %d:%02d)" % [t / 60, t % 60]
+	box.add_child(UIKit.button(surv_text, func():
+		Session.mode = "survival"
+		Session.go("game")))
 	box.add_child(UIKit.button("Bölümler", func(): Session.go("level_select")))
 	_daily_btn = UIKit.button("", _open_daily)
 	box.add_child(_daily_btn)
 	box.add_child(UIKit.button("Mağaza", func(): Session.go("shop")))
 	box.add_child(UIKit.button("Çok Oyunculu", func(): Session.go("multiplayer")))
 	box.add_child(UIKit.button("Ayarlar", func(): Session.go("settings")))
+	# 7 düğme sığsın diye ikincil düğmeler biraz daha alçak.
+	box.add_theme_constant_override("separation", 14)
+	for c in box.get_children():
+		if c is Button and c.custom_minimum_size.y < 100:
+			c.custom_minimum_size.y = 80
 	_refresh()
 
 	if SaveData.can_claim_daily():

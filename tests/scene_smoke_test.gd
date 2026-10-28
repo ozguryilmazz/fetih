@@ -73,8 +73,44 @@ func _run() -> void:
 	var resumed_ok: bool = game.phase == "play" and st.time > t0
 	print(("  ok   " if resumed_ok else "  HATA ") + "devam edince oyun sürdü")
 	failed = failed or not resumed_ok
+	game.queue_free()
+	await process_frame
+	failed = (await _survival_check()) or failed
 	print("SONUC: ", "HATA" if failed else "TAMAM")
 	quit(1 if failed else 0)
+
+
+## Hayatta kalma: oyun açılır, kendi üssüne basılı tutunca yükseltme menüsü açılır, kışla kurulur.
+func _survival_check() -> bool:
+	root.get_node("Session").mode = "survival"
+	var game: Node2D = load("res://scenes/game.tscn").instantiate()
+	root.add_child(game)
+	for i in 5:
+		await process_frame
+	var ok: bool = game.survival != null and game.state.economy
+	print(("  ok   " if ok else "  HATA ") + "hayatta kalma modu açıldı")
+	game._close_overlay()
+	game.phase = "play"
+	await process_frame
+	var st: MatchState = game.state
+	st.players[0]["gold"] = 500.0
+	var b: Dictionary = st.bases.filter(func(x): return x["owner"] == 0 and x["type"] == "normal")[0]
+	var p: Vector2 = game.get_global_transform_with_canvas() * b["pos"]
+	_touch(p, true)
+	var t0 := Time.get_ticks_msec()
+	while game._menu_base < 0 and Time.get_ticks_msec() - t0 < 1500:
+		await process_frame
+	var menu_ok: bool = game._menu_base == b["id"]
+	if not menu_ok:
+		print("    dokunulan üs: %d, beklenen: %d, basılı: %d, faz: %s" % [game._base_at(game.make_input_local(_ev(p)).position), b["id"], game._press_base, game.phase])
+	print(("  ok   " if menu_ok else "  HATA ") + "basılı tutunca yükseltme menüsü açıldı")
+	_touch(p, false)
+	game._issue({"type": "build", "owner": 0, "base": b["id"], "kind": "barracks"})
+	game._close_build_menu()
+	var built: bool = b["type"] == "barracks"
+	print(("  ok   " if built else "  HATA ") + "kışla kuruldu")
+	root.get_node("Session").mode = "solo"
+	return not (ok and menu_ok and built)
 
 
 func _touch(p: Vector2, pressed: bool) -> void:
@@ -83,3 +119,9 @@ func _touch(p: Vector2, pressed: bool) -> void:
 	e.position = p
 	e.pressed = pressed
 	root.push_input(e, true)
+
+
+func _ev(p: Vector2) -> InputEventScreenTouch:
+	var e := InputEventScreenTouch.new()
+	e.position = p
+	return e
