@@ -11,6 +11,7 @@ func _initialize() -> void:
 	_test_capture_and_network()
 	_test_head_on_clash()
 	_test_crossing_clash()
+	_test_levels_and_rewards()
 	_test_bot_matches()
 	print("SONUC: ", "HATA" if _failed else "TAMAM")
 	quit(1 if _failed else 0)
@@ -154,6 +155,33 @@ func _test_crossing_clash() -> void:
 	_check(max_groups >= 3, "ortadan vurulan kol ikiye bölündü (en çok %d kol)" % max_groups)
 	_check(a_left < 30.0 and is_equal_approx(a_left, b_left),
 		"iki taraf eşit kayıp verdi (ulaşan: %.0f ve %.0f)" % [a_left, b_left])
+
+
+func _test_levels_and_rewards() -> void:
+	print("Bölümler, yıldızlar, ödüller")
+	var bosses: Array = range(1, 51).filter(func(n): return GameConfig.is_boss(n))
+	_check(bosses == [10, 20, 30, 40, 50], "boss bölümleri: %s" % [bosses])
+	var skills: Array = range(1, 51).map(func(n): return GameConfig.skill_for_level(n))
+	var rising := true
+	for i in range(1, skills.size()):
+		rising = rising and skills[i] >= skills[i - 1]
+	_check(rising, "bot becerisi bölümle birlikte artıyor (%.2f → %.2f)" % [skills[0], skills[49]])
+	var bands: Array = [1, 11, 21, 31, 41].map(func(n): return GameConfig.band_name(n))
+	_check(bands == ["Kolay-Orta", "Orta", "Orta-Zor", "Zor", "Çok Zor"], "zorluk bantları: %s" % [bands])
+
+	var p := GameConfig.level_params(5)
+	_check(GameConfig.stars_for(p, p["par"] - 1, 0) == 3, "hedef sürede + az kayıp = 3 yıldız")
+	_check(GameConfig.stars_for(p, p["par"] + 1, 0) == 2, "süre aşıldı = 2 yıldız")
+	_check(GameConfig.stars_for(p, p["par"] + 1, GameConfig.STAR_LOSS_LIMIT + 1) == 1, "ikisi de tutmadı = 1 yıldız")
+	var golds: Array = [1, 2, 3].map(func(st): return GameConfig.level_gold(5, st, 0))
+	_check(golds == [50, 75, 100], "altın: 1★ 50, 2★ 75, 3★ 100 (bulunan: %s)" % [golds])
+	_check(GameConfig.level_gold(10, 3, 0) == 200, "boss bölümü çift altın")
+	_check(GameConfig.level_gold(5, 2, 3) == 15, "geliştirme olmayan tekrar oyunu %%20 altın")
+
+	var setup := LevelSetup.create(20, {"name": "P", "color": 1, "icon": 0, "upgrades": {}}, 42)
+	var st: MatchState = setup["state"]
+	var forts := st.bases.filter(func(b): return b["type"] == "fortress" and b["owner"] == 1)
+	_check(st.players.size() == 2 and forts.size() == 1, "boss bölümünde boss tek rakip ve kalesi var")
 
 
 func _test_bot_matches() -> void:

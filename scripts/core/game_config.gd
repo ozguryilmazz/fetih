@@ -31,6 +31,8 @@ const OVERFLOW_DECAY := 2.0
 ## defense: saldıranın askerleri bu sayıya bölünerek düşülür (1.5 = %50 daha dayanıklı).
 const BASE_TYPES := {
 	"normal": {"name": "Normal", "growth": 1.0, "capacity": 60, "defense": 1.0, "radius": 42.0},
+	## Boss'un ana üssü: büyük, hızlı üretir, dayanıklı.
+	"fortress": {"name": "Kale", "growth": 1.4, "capacity": 120, "defense": 1.4, "radius": 54.0},
 }
 
 const PALETTE_HEX := [
@@ -79,14 +81,87 @@ static func road_bonus(level: int) -> int:
 	return level
 
 
-## Solo bölümlerin zorluk eğrisi.
+# ---------------------------------------------------------------- solo bölümler
+
+const MAX_LEVEL := 50
+## Yıldız sayısına göre altın (0, 1, 2, 3 yıldız).
+const STAR_GOLD := [0, 50, 75, 100]
+## Daha önce aynı/daha iyi yıldızla geçilmiş bölüm tekrar oynanırsa verilen oran.
+const REPLAY_GOLD_FACTOR := 0.2
+const BOSS_GOLD_FACTOR := 2
+## 3. yıldız: en fazla bu kadar üs kaybederek kazan.
+const STAR_LOSS_LIMIT := 2
+## Günlük ödül serisi (7. günden sonra başa döner; bir gün kaçırılırsa seri sıfırlanır).
+const DAILY_REWARDS := [50, 75, 100, 125, 150, 200, 300]
+const BAND_NAMES := ["Kolay-Orta", "Orta", "Orta-Zor", "Zor", "Çok Zor"]
+## Zorluk eğrisi: [bölüm, bot becerisi 0..1]. Aradaki bölümler doğrusal geçer.
+const SKILL_CURVE := [[1, 0.0], [10, 0.25], [20, 0.45], [30, 0.62], [40, 0.78], [50, 0.95]]
+
+
+static func is_boss(n: int) -> bool:
+	return n % 10 == 0
+
+
+static func band_name(n: int) -> String:
+	@warning_ignore("integer_division")
+	return BAND_NAMES[clampi((n - 1) / 10, 0, BAND_NAMES.size() - 1)]
+
+
+static func skill_for_level(n: int) -> float:
+	n = clampi(n, 1, MAX_LEVEL)
+	for i in range(1, SKILL_CURVE.size()):
+		var a: Array = SKILL_CURVE[i - 1]
+		var b: Array = SKILL_CURVE[i]
+		if n <= b[0]:
+			return lerpf(a[1], b[1], float(n - a[0]) / float(b[0] - a[0]))
+	return 1.0
+
+
 static func level_params(n: int) -> Dictionary:
-	return {
-		"bots": 1 if n < 4 else 2,
-		"bases": clampi(7 + int(n / 2.0), 7, 16),
-		"difficulty": clampf(0.1 + n * 0.05, 0.1, 1.0),
-		"bot_upgrade": mini(int(n / 3.0), 10),
-		"neutral_min": 5 + int(n / 3.0),
-		"neutral_max": 15 + n,
-		"gold": 40 + n * 10,
+	var s := skill_for_level(n)
+	var boss := is_boss(n)
+	var up := clampi(int(floor((s - 0.25) * 9.0)), 0, 7)
+	var p := {
+		"skill": s,
+		"boss": boss,
+		"bots": 1 if (n <= 5 or boss) else 2,
+		"bases": clampi(7 + int(n / 4.0), 7, 16),
+		"bot_upgrade": up,
+		"bot_prod_bonus": 1.0 + 0.15 * clampf((s - 0.6) / 0.4, 0.0, 1.0),
+		"neutral_min": 5 + int(n / 5.0),
+		"neutral_max": 15 + int(n / 3.0),
 	}
+	if boss:
+		p["skill"] = minf(1.0, s + 0.05)
+		p["bot_upgrade"] = up + 1
+		p["bot_prod_bonus"] += 0.1
+		p["bases"] = mini(p["bases"] + 1, 17)
+	p["par"] = par_time(p)
+	return p
+
+
+## 2. yıldız için hedef süre (saniye). Zorluk simülasyonuyla ayarlandı.
+static func par_time(p: Dictionary) -> int:
+	var t: float = 55.0 + 6.0 * p["bases"] + 15.0 * (p["bots"] - 1)
+	if p["boss"]:
+		t += 30.0
+	return int(ceil(t / 10.0) * 10.0)
+
+
+static func level_gold(n: int, stars: int, previous_best: int) -> int:
+	var g: float = STAR_GOLD[stars]
+	if is_boss(n):
+		g *= BOSS_GOLD_FACTOR
+	if stars <= previous_best:
+		g *= REPLAY_GOLD_FACTOR
+	return int(g)
+
+
+## Kazanılan bölümün yıldız sayısı: 1 (kazandın) + hedef süre + az kayıp.
+static func stars_for(params: Dictionary, time_sec: float, bases_lost: int) -> int:
+	var st := 1
+	if time_sec <= params["par"]:
+		st += 1
+	if bases_lost <= STAR_LOSS_LIMIT:
+		st += 1
+	return st

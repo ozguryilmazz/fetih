@@ -29,6 +29,12 @@ func _run() -> void:
 	root.add_child(game)
 	for i in 10:
 		await process_frame
+	var intro_ok: bool = game.phase == "intro" and game._overlay != null
+	print(("  ok   " if intro_ok else "  HATA ") + "oyun hedef kartıyla başladı")
+	failed = failed or not intro_ok
+	game._close_overlay()
+	game.phase = "play"
+	await process_frame
 	var st: MatchState = game.state
 	var mine: Dictionary = st.bases.filter(func(b): return b["owner"] == 0)[0]
 	var target: Dictionary = st.bases.filter(func(b): return b["owner"] != 0)[0]
@@ -53,6 +59,20 @@ func _run() -> void:
 	var sent: bool = st.groups.any(func(g): return g["owner"] == 0 and g["to"] == target["id"])
 	print(("  ok   " if sent else "  HATA ") + "sürükle-bırak asker gönderdi (üs: %d -> %d)" % [before, int(mine["troops"])])
 	failed = failed or not sent
+
+	game._pause()
+	var t0: float = st.time
+	for i in 20:
+		await process_frame
+	var paused_ok: bool = game.phase == "pause" and is_equal_approx(st.time, t0)
+	print(("  ok   " if paused_ok else "  HATA ") + "duraklatınca oyun durdu")
+	failed = failed or not paused_ok
+	game._resume()
+	for i in 20:
+		await process_frame
+	var resumed_ok: bool = game.phase == "play" and st.time > t0
+	print(("  ok   " if resumed_ok else "  HATA ") + "devam edince oyun sürdü")
+	failed = failed or not resumed_ok
 	print("SONUC: ", "HATA" if failed else "TAMAM")
 	quit(1 if failed else 0)
 

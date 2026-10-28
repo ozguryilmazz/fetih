@@ -18,6 +18,9 @@ var my_id := 0
 var bots: Array = []
 var params: Dictionary
 var finished := false
+## "intro" (hedef kartı), "play", "pause", "end"
+var phase := "intro"
+var bases_lost := 0
 
 var _acc := 0.0
 var _dragging := false
@@ -25,7 +28,10 @@ var _sources: Array = []
 var _targets: Array = []
 var _finger := Vector2.ZERO
 var _font: Font
-var _end_layer: CanvasLayer
+var _overlay_layer: CanvasLayer
+var _overlay: Control
+var _time_label: Label
+var _loss_label: Label
 var _rng := RandomNumberGenerator.new()
 
 # Efektler (sadece görsel; simülasyonu etkilemez).
@@ -47,26 +53,16 @@ func _ready() -> void:
 	_build_hud()
 	get_viewport().size_changed.connect(_layout)
 	_layout()
+	_show_intro()
 
 
 func _setup_solo() -> void:
-	params = GameConfig.level_params(Session.level)
-	var players: Array = [MatchState.make_player(
-		0, SaveData.player_name, SaveData.color_index, SaveData.icon_index, false, SaveData.upgrades)]
-
-	var used_colors: Array = [SaveData.color_index]
-	var lvl: int = params["bot_upgrade"]
-	var bot_upgrades := {"production": lvl, "speed": lvl, "start": lvl, "road": lvl}
-	for i in params["bots"]:
-		var ci := 0
-		while used_colors.has(ci):
-			ci += 1
-		used_colors.append(ci)
-		players.append(MatchState.make_player(i + 1, "Bot %d" % (i + 1), ci, randi() % GameConfig.ICON_NAMES.size(), true, bot_upgrades))
-
-	state = MatchState.create(randi(), players, params["bases"], params["neutral_min"], params["neutral_max"])
-	for i in range(1, players.size()):
-		bots.append(BotAI.new(i, params["difficulty"], randi()))
+	var setup := LevelSetup.create(Session.level, {
+		"name": SaveData.player_name, "color": SaveData.color_index,
+		"icon": SaveData.icon_index, "upgrades": SaveData.upgrades}, randi())
+	state = setup["state"]
+	bots = setup["bots"]
+	params = setup["params"]
 
 
 ## Mantıksal 720x1280 haritayı, farklı ekran oranlarında ortala.
@@ -78,7 +74,7 @@ func _layout() -> void:
 
 
 func _process(delta: float) -> void:
-	if not finished:
+	if phase == "play":
 		_acc += minf(delta, 0.25)
 		while _acc >= GameConfig.SIM_DT:
 			_acc -= GameConfig.SIM_DT
@@ -87,8 +83,10 @@ func _process(delta: float) -> void:
 					state.apply_command(cmd)
 			state.step(GameConfig.SIM_DT)
 		_consume_events()
+		_update_hud()
 		_check_end()
-	_update_effects(delta)
+	if phase == "play" or phase == "end":
+		_update_effects(delta)
 	queue_redraw()
 
 
@@ -126,6 +124,7 @@ func _consume_events() -> void:
 					_vibrate(35, 0.6)
 					_shake(4.0, 0.15)
 				elif e["from"] == my_id:
+					bases_lost += 1
 					_vibrate(90, 1.0)
 					_shake(9.0, 0.25)
 	state.events.clear()
@@ -176,7 +175,7 @@ func _update_effects(delta: float) -> void:
 # ---------------------------------------------------------------- giriş
 
 func _unhandled_input(event: InputEvent) -> void:
-	if finished:
+	if phase != "play":
 		return
 	if event is InputEventScreenTouch and event.index == 0:
 		var p: Vector2 = make_input_local(event).position
@@ -300,6 +299,8 @@ func _draw_base(b: Dictionary) -> void:
 		c += Vector2(_rng.randf_range(-2.5, 2.5), _rng.randf_range(-2.5, 2.5))
 
 	draw_circle(c + Vector2(0, 5), r, Color(0, 0, 0, 0.3))
+	if b["type"] == "fortress":
+		_draw_fortress(c, r, col)
 	draw_circle(c, r, col)
 	draw_arc(c, r - 3.0, 0.0, TAU, 48, col.lightened(0.25), 4.0, true)
 	if owner != GameConfig.NEUTRAL:
@@ -311,6 +312,21 @@ func _draw_base(b: Dictionary) -> void:
 		draw_arc(c, r + 8.0, 0.0, TAU, 48, UIKit.ACCENT, 5.0, true)
 
 	_text_centered(str(int(b["troops"])), c, 30, Color.WHITE)
+
+
+## Kale (boss üssü): dişli dış halka ve üstünde taç.
+func _draw_fortress(c: Vector2, r: float, col: Color) -> void:
+	var teeth := 12
+	for i in teeth:
+		var a := TAU * i / teeth
+		var p := c + Vector2(cos(a), sin(a)) * (r + 5.0)
+		draw_rect(Rect2(p - Vector2(6, 6), Vector2(12, 12)), col.darkened(0.25))
+	draw_circle(c, r + 4.0, col.darkened(0.25))
+	var top := c + Vector2(0, -r - 14.0)
+	var crown := PackedVector2Array([
+		top + Vector2(-18, 10), top + Vector2(-18, -6), top + Vector2(-9, 2), top + Vector2(0, -10),
+		top + Vector2(9, 2), top + Vector2(18, -6), top + Vector2(18, 10)])
+	draw_colored_polygon(crown, UIKit.ACCENT)
 
 
 ## Kenarı koyu, ortası açık küçük asker dokusu (beyaz; çizerken renklendirilir).
@@ -338,7 +354,7 @@ func _text_centered(text: String, c: Vector2, fs: int, col: Color) -> void:
 	draw_string(_font, Vector2(c.x - w / 2.0, y), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, col)
 
 
-# ---------------------------------------------------------------- HUD ve bitiş
+# ---------------------------------------------------------------- HUD
 
 func _build_hud() -> void:
 	var layer := CanvasLayer.new()
@@ -353,15 +369,180 @@ func _build_hud() -> void:
 	bar.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	bar.offset_left = 24
 	bar.offset_right = -24
-	bar.offset_top = 40
+	bar.offset_top = 36
+	bar.add_theme_constant_override("separation", 18)
 	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(bar)
 
-	var lvl := UIKit.label("Bölüm %d" % Session.level, 34)
-	lvl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	bar.add_child(lvl)
-	bar.add_child(UIKit.button("Çık", func(): Session.go("main_menu"), 70))
+	var pause := UIKit.button("II", func(): _pause(), 76)
+	pause.custom_minimum_size.x = 76
+	pause.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	bar.add_child(pause)
 
+	var info := VBoxContainer.new()
+	info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	info.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	info.add_theme_constant_override("separation", 0)
+	bar.add_child(info)
+	var title := "Bölüm %d" % Session.level
+	if params["boss"]:
+		title += "  ·  BOSS"
+	info.add_child(UIKit.label(title, 32))
+	_loss_label = UIKit.label("", 22, UIKit.MUTED)
+	info.add_child(_loss_label)
+
+	_time_label = UIKit.label("", 34)
+	_time_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	_time_label.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	_time_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	bar.add_child(_time_label)
+	_update_hud()
+
+
+func _update_hud() -> void:
+	var over: bool = state.time > params["par"]
+	_time_label.text = "%s / %s" % [_fmt_time(state.time), _fmt_time(params["par"])]
+	_time_label.add_theme_color_override("font_color", Color("#e57373") if over else UIKit.TEXT)
+	var limit := GameConfig.STAR_LOSS_LIMIT
+	_loss_label.text = "Kaybedilen üs: %d / %d" % [bases_lost, limit]
+	_loss_label.add_theme_color_override("font_color", Color("#e57373") if bases_lost > limit else UIKit.MUTED)
+
+
+static func _fmt_time(sec: float) -> String:
+	var t := int(sec)
+	@warning_ignore("integer_division")
+	return "%d:%02d" % [t / 60, t % 60]
+
+
+## Hedef listesi: [metin, tutuldu mu (null = henüz belli değil)]
+func _goals(won: Variant) -> Array:
+	var time_ok: Variant = null
+	var loss_ok: Variant = null
+	if won == true:
+		time_ok = state.time <= params["par"]
+		loss_ok = bases_lost <= GameConfig.STAR_LOSS_LIMIT
+	elif won == false:
+		time_ok = false
+		loss_ok = false
+	else:
+		time_ok = false if state.time > params["par"] else null
+		loss_ok = false if bases_lost > GameConfig.STAR_LOSS_LIMIT else null
+	return [
+		["Bölümü kazan", won],
+		["%s içinde kazan" % _fmt_time(params["par"]), time_ok],
+		["En fazla %d üs kaybet" % GameConfig.STAR_LOSS_LIMIT, loss_ok],
+	]
+
+
+# ---------------------------------------------------------------- açılır panolar
+
+## Yarı saydam arka plan + ortada panel; panelin içeriğini döndürür.
+func _open_overlay() -> VBoxContainer:
+	_close_overlay()
+	_overlay_layer = CanvasLayer.new()
+	_overlay_layer.layer = 10
+	add_child(_overlay_layer)
+	_overlay = Control.new()
+	_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_overlay.theme = UIKit.make_theme()
+	_overlay_layer.add_child(_overlay)
+
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.6)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_overlay.add_child(dim)
+
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_overlay.add_child(center)
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(580, 0)
+	center.add_child(panel)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 18)
+	panel.add_child(box)
+	return box
+
+
+func _close_overlay() -> void:
+	if _overlay_layer:
+		_overlay_layer.queue_free()
+		_overlay_layer = null
+		_overlay = null
+
+
+func _add_title(box: VBoxContainer, text: String, size: int, col: Color) -> void:
+	var l := UIKit.label(text, size, col)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(l)
+
+
+func _add_goals(box: VBoxContainer, goals: Array) -> void:
+	for g in goals:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 14)
+		box.add_child(row)
+		var star := StarRow.new()
+		star.total = 1
+		star.count = 1 if g[1] == true else 0
+		if g[1] == null:
+			star.empty_color = Color(1, 1, 1, 0.45)
+		elif g[1] == false:
+			star.empty_color = Color(0.9, 0.35, 0.35, 0.6)
+		star.custom_minimum_size = Vector2(38, 38)
+		row.add_child(star)
+		var col := UIKit.TEXT
+		if g[1] == false:
+			col = UIKit.MUTED
+		var l := UIKit.label(g[0], 28, col)
+		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		row.add_child(l)
+
+
+func _show_intro() -> void:
+	phase = "intro"
+	var box := _open_overlay()
+	_add_title(box, "Bölüm %d" % Session.level, 54, UIKit.TEXT)
+	if params["boss"]:
+		_add_title(box, "BOSS: %s" % state.players[1]["name"], 34, Color("#ff8a80"))
+	_add_title(box, GameConfig.band_name(Session.level), 26, UIKit.MUTED)
+	var best := SaveData.best_stars(Session.level)
+	if best > 0:
+		var sr := StarRow.new()
+		sr.count = best
+		sr.custom_minimum_size = Vector2(0, 44)
+		box.add_child(sr)
+	box.add_child(UIKit.label("Hedefler", 28, UIKit.MUTED))
+	_add_goals(box, _goals(null))
+	box.add_child(UIKit.button("Başla", func():
+		_close_overlay()
+		phase = "play", 100))
+	box.add_child(UIKit.button("Geri", func(): Session.go("level_select"), 80))
+
+
+func _pause() -> void:
+	if phase != "play":
+		return
+	phase = "pause"
+	_dragging = false
+	var box := _open_overlay()
+	_add_title(box, "Duraklatıldı", 50, UIKit.TEXT)
+	_add_title(box, "Bölüm %d  ·  %s" % [Session.level, _fmt_time(state.time)], 28, UIKit.MUTED)
+	_add_goals(box, _goals(null))
+	box.add_child(UIKit.button("Devam Et", _resume, 100))
+	box.add_child(UIKit.button("Yeniden Başla", func(): Session.go("game")))
+	box.add_child(UIKit.button("Bölümler", func(): Session.go("level_select")))
+	box.add_child(UIKit.button("Ana Menü", func(): Session.go("main_menu")))
+
+
+func _resume() -> void:
+	_close_overlay()
+	_acc = 0.0
+	phase = "play"
+
+
+# ---------------------------------------------------------------- bitiş
 
 func _check_end() -> void:
 	var alive := state.alive_players()
@@ -373,57 +554,55 @@ func _check_end() -> void:
 
 func _end(won: bool) -> void:
 	finished = true
+	phase = "end"
 	_dragging = false
 	_vibrate(160 if won else 250, 0.8)
+	var stars := 0
 	var gold := 0
+	var prev := SaveData.best_stars(Session.level)
 	if won:
-		gold = params["gold"]
-		SaveData.gold += gold
-		if Session.level >= SaveData.unlocked_level:
-			SaveData.unlocked_level = Session.level + 1
-		SaveData.save()
-	_show_end_panel(won, gold)
+		stars = GameConfig.stars_for(params, state.time, bases_lost)
+		gold = SaveData.record_win(Session.level, stars)
+	_show_end_panel.call_deferred(won, stars, gold, prev)
 
 
-func _show_end_panel(won: bool, gold: int) -> void:
-	_end_layer = CanvasLayer.new()
-	_end_layer.layer = 10
-	add_child(_end_layer)
-	var root := Control.new()
-	root.set_anchors_preset(Control.PRESET_FULL_RECT)
-	root.theme = UIKit.make_theme()
-	_end_layer.add_child(root)
-
-	var dim := ColorRect.new()
-	dim.color = Color(0, 0, 0, 0.6)
-	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
-	root.add_child(dim)
-
-	var center := CenterContainer.new()
-	center.set_anchors_preset(Control.PRESET_FULL_RECT)
-	root.add_child(center)
-	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(560, 0)
-	center.add_child(panel)
-	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 20)
-	panel.add_child(box)
-
-	var title := UIKit.label("Kazandın!" if won else "Kaybettin", 56, UIKit.ACCENT if won else UIKit.TEXT)
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	box.add_child(title)
+func _show_end_panel(won: bool, stars: int, gold: int, prev: int) -> void:
+	var box := _open_overlay()
+	_add_title(box, "Kazandın!" if won else "Kaybettin", 58, UIKit.ACCENT if won else UIKit.TEXT)
+	var sr := StarRow.new()
+	sr.count = stars
+	sr.custom_minimum_size = Vector2(0, 84)
+	box.add_child(sr)
+	_add_title(box, "Süre %s" % _fmt_time(state.time), 26, UIKit.MUTED)
+	_add_goals(box, _goals(won))
 	if won:
-		var g := UIKit.label("+%d altın" % gold, 36, UIKit.ACCENT)
-		g.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		box.add_child(g)
-		box.add_child(UIKit.button("Sonraki Bölüm", func():
-			Session.level += 1
-			Session.go("game")))
-	else:
-		box.add_child(UIKit.button("Tekrar Dene", func(): Session.go("game")))
+		var note := ""
+		if stars <= prev:
+			note = "  (tekrar)"
+		elif prev > 0:
+			note = "  (yeni rekor!)"
+		_add_title(box, "+%d altın%s" % [gold, note], 36, UIKit.ACCENT)
+		if Session.level < GameConfig.MAX_LEVEL:
+			box.add_child(UIKit.button("Sonraki Bölüm", func():
+				Session.level += 1
+				Session.go("game"), 100))
+		else:
+			_add_title(box, "Tüm bölümleri bitirdin!", 30, UIKit.ACCENT)
+	box.add_child(UIKit.button("Tekrar Oyna", func(): Session.go("game")))
 	box.add_child(UIKit.button("Ana Menü", func(): Session.go("main_menu")))
 
 
 func _notification(what: int) -> void:
-	if what == NOTIFICATION_WM_GO_BACK_REQUEST:
-		Session.go("main_menu")
+	match what:
+		NOTIFICATION_WM_GO_BACK_REQUEST:
+			match phase:
+				"play":
+					_pause()
+				"pause":
+					_resume()
+				"intro":
+					Session.go("level_select")
+				_:
+					Session.go("main_menu")
+		NOTIFICATION_APPLICATION_PAUSED, NOTIFICATION_APPLICATION_FOCUS_OUT:
+			_pause()

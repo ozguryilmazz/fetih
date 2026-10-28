@@ -35,3 +35,7 @@ static func _star(c: Vector2, r_out: float, r_in: float, n: int) -> PackedVector
 		var r := r_out if i % 2 == 0 else r_in
 		pts.append(c + Vector2(cos(a), sin(a)) * r)
 	return pts
+
+
+static func star_points(c: Vector2, r: float) -> PackedVector2Array:
+	return _star(c, r, r * 0.45, 5)

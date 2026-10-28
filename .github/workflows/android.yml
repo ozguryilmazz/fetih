@@ -81,6 +81,7 @@ jobs:
       - name: Testler
         run: |
           ~/godot/godot --headless --path . --import
+          timeout 60 ~/godot/godot --headless --path . -s tests/parse_check.gd
           timeout 300 ~/godot/godot --headless --path . -s tests/sim_test.gd
           timeout 120 ~/godot/godot --headless --path . -s tests/scene_smoke_test.gd
 
