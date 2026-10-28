@@ -92,10 +92,9 @@ jobs:
           ~/godot/godot --headless --path . --export-debug "Android" build/fetih-debug.apk 2>&1 | tee export.log
           set -e
           if [ ! -s build/fetih-debug.apk ]; then
-            # Hata satırlarını GitHub "annotation" olarak göster (günlük indirmeden okunabilsin).
-            grep -A12 -iE "error|invalid|missing|unable|cannot|failed" export.log | grep -v '%' | grep -v '^\s*at:' | grep -v '^--$' | head -30 | while read -r line; do
-              echo "::error title=APK derleme::$line"
-            done
+            # Günlüğün son kısmını tek bir GitHub "annotation" olarak göster (günlük indirmeden okunabilsin).
+            MSG=$(sed 's/\x1b\[[0-9;]*m//g' export.log | grep -v '%' | grep -vE '^\s*$|^\s*at:' | tail -40 | sed ':a;N;$!ba;s/\n/%0A/g')
+            echo "::error title=APK derleme::$MSG"
             exit 1
           fi
           ls -la build
