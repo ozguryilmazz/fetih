@@ -35,10 +35,10 @@ const BASE_TYPES := {
 	"fortress": {"name": "Kale", "growth": 1.4, "capacity": 120, "defense": 1.4, "radius": 54.0},
 	## Hayatta kalma modu: oyuncunun kalesi. Düşerse oyun biter; askerinin en fazla
 	## yarısını gönderebilir (gerisi garnizon).
-	"keep": {"name": "Kale", "growth": 1.4, "capacity": 150, "defense": 2.0, "radius": 54.0},
-	## Hayatta kalma modu: rakibin ana kalesi. Asker göndermez (dalgaları o çıkarır),
-	## garnizonu büyür, savunması çok yüksektir. Alınırsa zafer.
-	"citadel": {"name": "Düşman Kalesi", "growth": 4.0, "capacity": 400, "defense": 2.5, "radius": 60.0},
+	"keep": {"name": "Kale", "growth": 1.4, "capacity": 150, "defense": 2.5, "radius": 54.0},
+	## Hayatta kalma modu: rakibin ana kalesi. Dalgaları o çıkarır, kendisi de saldırır
+	## (en fazla yarısı, en az 190 garnizon). Savunması çok yüksektir. Alınırsa zafer.
+	"citadel": {"name": "Düşman Kalesi", "growth": 1.5, "capacity": 250, "defense": 2.0, "radius": 60.0},
 	## Hayatta kalma modu: kışla (üretimi seviyeye göre, bkz. barracks_growth).
 	"barracks": {"name": "Kışla", "growth": 1.5, "capacity": 80, "defense": 1.0, "radius": 44.0},
 	## Hayatta kalma modu: altın madeni. growth/capacity = madenin kendi (2 güçlü) askerleri.
@@ -181,10 +181,10 @@ static func stars_for(params: Dictionary, time_sec: float, bases_lost: int) -> i
 # ---------------------------------------------------------------- hayatta kalma modu
 
 const SURVIVAL_BASES := 22
-const SURVIVAL_ENEMY_SKILL := 0.85
+const SURVIVAL_ENEMY_SKILL := 0.6
 const SURVIVAL_NEUTRAL_MIN := 15
 const SURVIVAL_NEUTRAL_MAX := 35
-const CITADEL_START := 300.0
+const CITADEL_START := 220.0
 ## Düşman kalesi bu dalgaya kadar kalkanlı (alınamaz).
 const CITADEL_SHIELD_WAVES := 10
 ## Maç altını: herkese saniyede bu kadar, her maden ayrıca MINE_GOLD ekler.
@@ -200,7 +200,13 @@ const EXTRA_BUILDING_COST := 0.5
 ## Kaleden tek seferde gönderilebilecek oran (yarısı garnizon olarak kalır).
 const FORTRESS_SEND_FRACTION := 0.5
 ## Kalede her zaman en az bu kadar asker kalır.
-const KEEP_MIN_GARRISON := 20
+const KEEP_MIN_GARRISON := 40
+const KEEP_START := 100.0
+## Düşman kalesi de saldırır ama içinde en az bu kadar asker bırakır.
+const CITADEL_MIN_GARRISON := 190
+## Düşman kalesi bu aralıkla, en az bu kadar askeri varsa en zayıf yakın üsse akın yapar.
+const CITADEL_RAID_INTERVAL := 12.0
+const CITADEL_RAID_MIN := 25
 ## Maden askeri bu kadar güçlü (normal asker 1).
 const ELITE_POWER := 2.0
 ## Kışla seviyeleri: [fiyat, kendi üretimi, diğer üslere üretim bonusu, hız bonusu]
@@ -217,7 +223,7 @@ const MAX_SPEED_BONUS := 0.3
 ## Dalgalar: ilk dalga WAVE_FIRST sn'de, sonra her WAVE_INTERVAL sn'de bir.
 const WAVE_FIRST := 60.0
 const WAVE_INTERVAL := 60.0
-const WAVE_BASE := 12
+const WAVE_BASE := 20
 const WAVE_GROWTH := 9
 ## Dalgalar ilerledikçe hızlanarak büyür: + WAVE_ACCEL * (n-1)^2
 const WAVE_ACCEL := 0.5

@@ -100,9 +100,23 @@ func base_strength(b: Dictionary) -> float:
 	return (b["troops"] + b.get("elite", 0.0) * GameConfig.ELITE_POWER) * float(base_type(b)["defense"])
 
 
-## Maden askerleri saldıramaz; düşman kalesi de asker göndermez (dalgaları o çıkarır).
+## Maden askerleri saldıramaz.
 static func can_send_from(b: Dictionary) -> bool:
-	return b["type"] != "mine" and b["type"] != "citadel"
+	return b["type"] != "mine"
+
+
+## Bu üsten tek seferde gönderilebilecek asker sayısı. Kaleler (oyuncu kalesi ve
+## düşman kalesi) en fazla yarısını gönderir ve içeride garnizon bırakır.
+static func sendable(b: Dictionary) -> int:
+	if not can_send_from(b):
+		return 0
+	var t: float = b["troops"]
+	match b["type"]:
+		"keep":
+			return maxi(0, mini(int(floor(t * GameConfig.FORTRESS_SEND_FRACTION)), int(floor(t - GameConfig.KEEP_MIN_GARRISON))))
+		"citadel":
+			return maxi(0, mini(int(floor(t * GameConfig.FORTRESS_SEND_FRACTION)), int(floor(t - GameConfig.CITADEL_MIN_GARRISON))))
+	return int(floor(t * GameConfig.SEND_FRACTION))
 
 
 static func group_count(g: Dictionary) -> int:
@@ -312,12 +326,7 @@ func _send(owner: int, sources: Array, targets: Array) -> void:
 		var my_targets := tgts.filter(func(x): return x != si)
 		if my_targets.is_empty():
 			continue
-		var fraction := GameConfig.SEND_FRACTION
-		if b["type"] == "keep":
-			fraction = GameConfig.FORTRESS_SEND_FRACTION
-		var total := int(floor(b["troops"] * fraction))
-		if b["type"] == "keep":
-			total = mini(total, int(floor(b["troops"] - GameConfig.KEEP_MIN_GARRISON)))
+		var total := sendable(b)
 		if total <= 0:
 			continue
 		var n := my_targets.size()

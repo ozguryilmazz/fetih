@@ -13,6 +13,7 @@ var wave := 0
 var next_wave := GameConfig.WAVE_FIRST
 var _enemy_base_prod := 1.0
 var _build_timer := 0.0
+var _raid_timer := 15.0
 var _rng := RandomNumberGenerator.new()
 
 
@@ -30,7 +31,7 @@ static func create(player: Dictionary, seed_val: int) -> Dictionary:
 	for b in state.bases:
 		if b["owner"] == PLAYER:
 			b["type"] = "keep"
-			b["troops"] = 50.0
+			b["troops"] = GameConfig.KEEP_START
 		elif b["owner"] == ENEMY:
 			b["type"] = "citadel"
 			b["troops"] = GameConfig.CITADEL_START
@@ -92,12 +93,32 @@ func update(state: MatchState, dt: float) -> void:
 				cit["shielded"] = false
 				state.events.append({"type": "shield_down", "base": cit["id"], "pos": cit["pos"]})
 
+	_raid_timer -= dt
+	if _raid_timer <= 0.0:
+		_raid_timer = GameConfig.CITADEL_RAID_INTERVAL
+		_raid(state)
+
 	_build_timer -= dt
 	if _build_timer <= 0.0:
 		_build_timer = 2.0
 		var cmd := auto_build(state, ENEMY)
 		if not cmd.is_empty():
 			state.apply_command(cmd)
+
+
+## Düşman kalesi garnizonun üstünde yeterli asker biriktirince, yakındaki en
+## zayıf oyuncu üssüne akın yapar (yapay zekâdan bağımsız, sürekli baskı).
+func _raid(state: MatchState) -> void:
+	var cit := fortress_of(state, ENEMY)
+	if cit.is_empty() or MatchState.sendable(cit) < GameConfig.CITADEL_RAID_MIN:
+		return
+	var cp: Vector2 = cit["pos"]
+	var targets: Array = state.bases.filter(func(b): return b["owner"] != ENEMY)
+	if targets.is_empty():
+		return
+	targets.sort_custom(func(a, b):
+		return state.base_strength(a) + a["pos"].distance_to(cp) * 0.08 < state.base_strength(b) + b["pos"].distance_to(cp) * 0.08)
+	state.apply_command({"type": "send", "owner": ENEMY, "sources": [cit["id"]], "targets": [targets[0]["id"]]})
 
 
 func _launch_wave(state: MatchState) -> void:

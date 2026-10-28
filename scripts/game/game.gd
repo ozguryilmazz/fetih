@@ -824,7 +824,8 @@ func _show_survival_intro() -> void:
 	var lines := [
 		"Saniyede 1 maç altını kazanırsın (mağaza altınından ayrı).",
 		"Kendi üssüne basılı tut: Kışla veya Altın Madeni kur, yükselt.",
-		"Her dakika rakip kalesinden bir saldırı dalgası gelir ve büyür.",
+		"Rakip kalesi sürekli akın yapar; ayrıca her dakika büyüyen bir saldırı dalgası gelir.",
+		"Kalenden en fazla askerin yarısı çıkar, en az %d asker içeride kalır." % GameConfig.KEEP_MIN_GARRISON,
 		"Kalen düşerse oyun biter. %d. dalgadan sonra rakip kalesinin kalkanı düşer: onu alırsan kazanırsın!" % GameConfig.CITADEL_SHIELD_WAVES,
 	]
 	for t in lines:

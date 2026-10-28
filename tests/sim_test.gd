@@ -249,9 +249,18 @@ func _test_survival_rules() -> void:
 	# Kale: en fazla yarısı gider, en az 20 kalır. Kalkanlı kale hasar almaz.
 	s = _survival_state()
 	s.bases[0]["type"] = "keep"
-	s.bases[0]["troops"] = 30.0
+	s.bases[0]["troops"] = 100.0
 	s.apply_command({"type": "send", "owner": 0, "sources": [0], "targets": [2]})
-	_check(_counts(s) == [10], "30 askerli kaleden 10 gider, 20 garnizon kalır (bulunan: %s)" % [_counts(s)])
+	_check(_counts(s) == [50], "100 askerli kaleden en fazla yarısı (50) gider (bulunan: %s)" % [_counts(s)])
+	s.groups.clear()
+	s.bases[0]["troops"] = 60.0
+	s.apply_command({"type": "send", "owner": 0, "sources": [0], "targets": [2]})
+	_check(_counts(s) == [20], "60 askerli kaleden 20 gider, 40 garnizon kalır (bulunan: %s)" % [_counts(s)])
+	s.groups.clear()
+	s.bases[1]["type"] = "citadel"
+	s.bases[1]["troops"] = 250.0
+	s.apply_command({"type": "send", "owner": 1, "sources": [1], "targets": [2]})
+	_check(_counts(s) == [60], "düşman kalesi de saldırır: 250'den 60 gider, 190 garnizon (bulunan: %s)" % [_counts(s)])
 	s = _survival_state()
 	_no_production(s)
 	s.bases[1]["type"] = "citadel"

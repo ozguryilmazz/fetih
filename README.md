@@ -25,8 +25,9 @@ state.io tarzı, sürükle-bırak strateji oyunu. Godot 4.6, Android, 2D.
   - Kışla: kendisi 1,5x–3,5x üretir, diğer tüm üslere +%10…+%50 üretim; 4–5. seviyede +%10/+%20 asker hızı. Bonuslar toplanır, tavan +%100 üretim / +%30 hız.
   - Maden: +0,5/1/1,5 altın/sn; 2 güçlü savunma askeri üretir (30/40/50), bu askerler saldıramaz.
   - Aynı türden her yeni bina %50 pahalı. Ele geçirilen kışla/maden normal üsse döner.
+  - Rakip kalesi (250 kapasite, 2x savunma) her 12 sn'de en zayıf yakın üsse akın yapar (en fazla yarısı, en az 190 garnizon).
   - Her dakika rakip kalesinden büyüyen bir dalga gelir (her 3. dalga doğrudan kaleye). Rakip üretimi dakikada %10 artar.
-  - Kalenden en fazla askerin yarısı gider, en az 20 garnizon kalır. Kale düşerse oyun biter.
+  - Kalen 100 askerle başlar; en fazla askerin yarısı gider, en az 40 garnizon kalır (2,5x savunma). Kale düşerse oyun biter.
   - Rakip kalesi 10. dalgaya kadar kalkanlı; sonra alınırsa zafer. Ödül: dakika başına 10 mağaza altını, zaferde +200.
 - **Altın ve mağaza:** kazanılan her bölüm altın verir; altınla Üretim Hızı, Asker Hızı, Başlangıç Gücü ve Yol Savaşı (yol çarpışmalarında kademe başına +1 asker avantajı) alınır.
 - **Ayarlar:** oyuncu adı, renk ve ikon (ikonlar şimdilik basit şekiller).

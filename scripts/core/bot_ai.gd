@@ -109,7 +109,7 @@ func _defend(state: MatchState, mine: Array, threats: Dictionary) -> Dictionary:
 			if h["pos"].distance_to(target["pos"]) / speed > eta + 1.5:
 				break
 			srcs.append(h["id"])
-			sum += floorf(h["troops"])
+			sum += MatchState.sendable(h)
 			if sum >= need:
 				return {"type": "send", "owner": pid, "sources": srcs, "targets": [tid]}
 	return {}
@@ -143,7 +143,7 @@ func _attack(state: MatchState, mine: Array, threats: Dictionary) -> Dictionary:
 		var raw := 0.0
 		var need := INF
 		for s in by_dist:
-			var avail := floorf(s["troops"])
+			var avail := float(MatchState.sendable(s))
 			if avail < 4.0 or not MatchState.can_send_from(s):
 				continue
 			if skill > 0.5 and threats.has(s["id"]):
