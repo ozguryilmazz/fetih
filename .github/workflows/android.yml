@@ -93,7 +93,7 @@ jobs:
           set -e
           if [ ! -s build/fetih-debug.apk ]; then
             # Hata satırlarını GitHub "annotation" olarak göster (günlük indirmeden okunabilsin).
-            grep -iE "error|invalid|missing|unable|cannot|failed" export.log | grep -v '%' | head -20 | while read -r line; do
+            grep -A12 -iE "error|invalid|missing|unable|cannot|failed" export.log | grep -v '%' | grep -v '^\s*at:' | grep -v '^--$' | head -30 | while read -r line; do
               echo "::error title=APK derleme::$line"
             done
             exit 1
