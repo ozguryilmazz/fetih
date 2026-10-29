@@ -75,8 +75,14 @@ jobs:
           echo "GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD=android" >> $GITHUB_ENV
 
       # Her derlemenin sürüm kodu artar; telefona eskisinin üzerine kurulabilir.
+      # Sürüm adı 0.1.<derleme no> olur ve Hakkında ekranında görünür.
       - name: Sürüm kodu
-        run: sed -i "s/^version\/code=.*/version\/code=${{ github.run_number }}/" export_presets.cfg
+        run: |
+          VER="0.1.${{ github.run_number }}"
+          sed -i "s/^version\/code=.*/version\/code=${{ github.run_number }}/" export_presets.cfg
+          sed -i "s/^version\/name=.*/version\/name=\"$VER\"/" export_presets.cfg
+          sed -i "s/^config\/version=.*/config\/version=\"$VER\"/" project.godot
+          grep -n "version" export_presets.cfg project.godot
 
       - name: Testler
         run: |

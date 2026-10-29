@@ -46,10 +46,19 @@ static func box(c: Color, radius := 18, border := Color(0, 0, 0, 0)) -> StyleBox
 ## Ekranın arka planını, kenar boşluklarını ve başlığı kurar; içerik kutusunu döndürür.
 static func screen(root: Control, title: String) -> VBoxContainer:
 	root.theme = make_theme()
-	var bg := ColorRect.new()
-	bg.color = BG
+	var bg := TextureRect.new()
+	bg.texture = Art.ground()
+	bg.stretch_mode = TextureRect.STRETCH_TILE
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(bg)
+	var vig := TextureRect.new()
+	vig.texture = Art.vignette()
+	vig.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	vig.stretch_mode = TextureRect.STRETCH_SCALE
+	vig.set_anchors_preset(Control.PRESET_FULL_RECT)
+	vig.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(vig)
 
 	var margin := MarginContainer.new()
 	margin.set_anchors_preset(Control.PRESET_FULL_RECT)

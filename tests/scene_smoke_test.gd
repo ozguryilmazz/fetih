@@ -2,7 +2,7 @@ extends SceneTree
 ## Ekranları sırayla açar, oyun ekranında gerçek bir sürükle-bırak hareketi yapar.
 ## godot --headless --path . -s tests/scene_smoke_test.gd
 
-const SCENES := ["main_menu", "level_select", "shop", "settings", "multiplayer", "quests"]
+const SCENES := ["main_menu", "level_select", "shop", "settings", "multiplayer", "quests", "about"]
 
 
 func _initialize() -> void:
@@ -76,6 +76,7 @@ func _run() -> void:
 	game.queue_free()
 	await process_frame
 	failed = (await _survival_check()) or failed
+	failed = (await _level_map_check()) or failed
 	print("SONUC: ", "HATA" if failed else "TAMAM")
 	quit(1 if failed else 0)
 
@@ -125,3 +126,41 @@ func _ev(p: Vector2) -> InputEventScreenTouch:
 	var e := InputEventScreenTouch.new()
 	e.position = p
 	return e
+
+
+## Bölüm haritası: açık bölüme dokununca bölüm seçilir, kilitliye dokununca seçilmez.
+func _level_map_check() -> bool:
+	var sd: Node = root.get_node("SaveData")
+	var ses: Node = root.get_node("Session")
+	var keep_level: int = sd.unlocked_level
+	sd.unlocked_level = 3
+	var scr: Node = load("res://scenes/level_select.tscn").instantiate()
+	root.add_child(scr)
+	for i in 6:
+		await process_frame
+	var map: Control = scr.find_children("*", "Control", true, false).filter(func(c): return c.has_method("node_pos"))[0]
+	var chosen: Array = []
+	for c in map.level_chosen.get_connections():
+		map.level_chosen.disconnect(c["callable"])
+	map.level_chosen.connect(func(n): chosen.append(n))
+	for lv in [2, 9]:
+		var p: Vector2 = map.get_global_transform_with_canvas() * map.node_pos(lv)
+		_mouse(p, true)
+		await process_frame
+		_mouse(p, false)
+		await process_frame
+	var ok: bool = chosen == [2]
+	print(("  ok   " if ok else "  HATA ") + "bölüm haritası: açık bölüm seçildi, kilitli seçilmedi (seçilen: %s)" % [chosen])
+	sd.unlocked_level = keep_level
+	scr.queue_free()
+	await process_frame
+	return not ok
+
+
+func _mouse(p: Vector2, pressed: bool) -> void:
+	var e := InputEventMouseButton.new()
+	e.button_index = MOUSE_BUTTON_LEFT
+	e.position = p
+	e.global_position = p
+	e.pressed = pressed
+	root.push_input(e, true)

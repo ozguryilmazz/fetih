@@ -50,7 +50,14 @@ func _ready() -> void:
 	box.add_child(_quest_btn)
 	box.add_child(UIKit.button("Mağaza", func(): Session.go("shop")))
 	box.add_child(UIKit.button("Çok Oyunculu", func(): Session.go("multiplayer")))
-	box.add_child(UIKit.button("Ayarlar", func(): Session.go("settings")))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 14)
+	box.add_child(row)
+	for pair in [["Ayarlar", "settings"], ["Hakkında", "about"]]:
+		var scene: String = pair[1]
+		var b := UIKit.button(pair[0], func(): Session.go(scene), 74)
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(b)
 	# 7 düğme sığsın diye ikincil düğmeler biraz daha alçak.
 	box.add_theme_constant_override("separation", 14)
 	for c in box.get_children():

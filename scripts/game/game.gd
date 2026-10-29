@@ -319,7 +319,9 @@ func _base_at(p: Vector2) -> int:
 
 func _draw() -> void:
 	var vis := get_viewport_rect().size
-	draw_rect(Rect2(-position - Vector2(20, 20), vis + Vector2(40, 40)), UIKit.BG)
+	var full := Rect2(-position - Vector2(20, 20), vis + Vector2(40, 40))
+	draw_texture_rect(Art.ground(), full, true)
+	draw_texture_rect(Art.vignette(), full, false)
 
 	if _dragging:
 		for s in _sources:
@@ -388,14 +390,21 @@ func _draw_base(b: Dictionary) -> void:
 	if _jolt.has(id):
 		c += Vector2(_rng.randf_range(-2.5, 2.5), _rng.randf_range(-2.5, 2.5))
 
-	draw_circle(c + Vector2(0, 5), r, Color(0, 0, 0, 0.3))
+	# Yere düşen gölge
+	draw_circle(c + Vector2(4, 12), r * 1.02, Color(0, 0, 0, 0.32))
 	if state.is_full(b):
 		_draw_full_glow(c, r, col, id)
 	var kind: String = b["type"]
 	if kind == "fortress" or kind == "keep" or kind == "citadel":
 		_draw_fortress(c, r, col)
-	draw_circle(c, r, col)
-	draw_arc(c, r - 3.0, 0.0, TAU, 48, col.lightened(0.25), 4.0, true)
+	# Derinlik: alt kalınlık + kubbe gölgelendirmesi + parlama + ince kenar
+	draw_circle(c + Vector2(0, 6), r, col.darkened(0.45))
+	var body := Rect2(c - Vector2(r, r), Vector2(r, r) * 2.0)
+	draw_texture_rect(Art.ball(), body, false, col.lightened(0.12))
+	draw_texture_rect(Art.gloss(), body, false)
+	var rim := col.lightened(0.35)
+	rim.a = 0.55
+	draw_arc(c, r - 2.0, 0.0, TAU, 56, rim, 3.0, true)
 	if kind == "barracks":
 		_draw_barracks(c, r, col, b.get("level", 1))
 	elif kind == "mine":

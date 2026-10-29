@@ -36,6 +36,8 @@ state.io tarzı, sürükle-bırak strateji oyunu. Godot 4.6, Android, 2D.
   - Üs ele geçir: 10/20/…/100 → 10/20/…/100
 - **Altın ve mağaza:** kazanılan her bölüm altın verir; altınla Üretim Hızı, Asker Hızı, Başlangıç Gücü ve Yol Savaşı (yol çarpışmalarında kademe başına +1 asker avantajı) alınır.
 - **Ayarlar:** oyuncu adı, renk ve ikon (ikonlar şimdilik basit şekiller).
+- **Hakkında:** tasarımcı, hedef kullanıcılar, sürüm. Sürüm her GitHub derlemesinde otomatik `0.1.<derleme no>` olur.
+- **Görseller:** kodla üretilen hafif dokulu zemin + kenar kararması; üslerde gölge, kalınlık, kubbe gölgelendirmesi ve parlama; harita tarzı bölüm seçimi (kıvrılan yol, bant renkleri, kilitli/açık/boss noktaları). Hiç resim dosyası yok, APK büyümedi.
 - **Kayıt:** her şey cihazda saklanır (`user://save.cfg`), hesap yok.
 - **Çok oyunculu ekran:** arayüz hazır, online bağlantı henüz yok (sıradaki adım).
 
