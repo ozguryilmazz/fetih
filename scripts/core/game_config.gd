@@ -56,10 +56,10 @@ const ICON_NAMES := ["Daire", "Yıldız", "Üçgen", "Kare", "Elmas", "Altıgen"
 
 ## Altınla alınan güçlendirmeler. Solo ve multiplayer'da geçerlidir.
 const UPGRADES := {
-	"production": {"name": "Üretim Hızı", "desc": "Üslerin %6 daha hızlı asker üretir", "max": 10, "base_cost": 100},
-	"speed": {"name": "Asker Hızı", "desc": "Askerlerin %5 daha hızlı yürür", "max": 10, "base_cost": 100},
-	"start": {"name": "Başlangıç Gücü", "desc": "Başlangıç üssüne +3 asker", "max": 10, "base_cost": 80},
-	"road": {"name": "Yol Savaşı", "desc": "Yolda çarpışınca her kolun +1 asker avantajlı (15'e 15 → 1 askerin sağ kalır)", "max": 10, "base_cost": 120},
+	"production": {"name": "Üretim Hızı", "desc": "Üslerin %6 daha hızlı asker üretir", "max": 20, "base_cost": 100},
+	"speed": {"name": "Asker Hızı", "desc": "Askerlerin %5 daha hızlı yürür", "max": 20, "base_cost": 100},
+	"start": {"name": "Başlangıç Gücü", "desc": "Başlangıç üssüne +3 asker", "max": 20, "base_cost": 80},
+	"road": {"name": "Yol Savaşı", "desc": "Yolda çarpışınca her kolun +1 asker avantajlı (15'e 15 → 1 askerin sağ kalır)", "max": 20, "base_cost": 120},
 }
 const UPGRADE_ORDER := ["production", "speed", "start", "road"]
 
@@ -106,13 +106,13 @@ const DAILY_REWARDS := [50, 75, 100, 125, 150, 200, 300]
 ## Günlük görevler: her gün sıfırlanır. Kademeler: [hedef, altın]; her kademe ayrı alınır.
 const QUESTS := [
 	{"id": "kills", "name": "Asker öldür", "desc": "Üslere saldırırken ve savunurken (yol çarpışmaları hariç)",
-		"tiers": [[50, 10], [100, 30], [200, 50], [400, 80], [500, 100], [700, 130], [1000, 150]]},
+		"tiers": [[100, 10], [200, 30], [300, 50], [400, 80], [500, 100], [600, 130], [700, 150]]},
 	{"id": "new_levels", "name": "Yeni bölüm bitir", "desc": "Daha önce geçilmemiş bölümler sayılır",
 		"tiers": [[1, 20], [2, 40], [3, 60], [4, 80], [5, 100], [6, 120], [7, 150], [8, 180], [9, 200], [10, 250]]},
 	{"id": "clash_kills", "name": "Yol çarpışmasında asker öldür", "desc": "Rakip kollarla yolda karşılaşınca",
-		"tiers": [[10, 10], [20, 30], [30, 50], [40, 70], [50, 90], [60, 110], [70, 150], [80, 200], [90, 300], [100, 500]]},
+		"tiers": [[50, 10], [100, 30], [150, 50], [200, 70], [250, 90], [300, 110], [350, 150], [400, 200], [450, 300], [500, 500]]},
 	{"id": "captures", "name": "Üs ele geçir", "desc": "Rakip veya tarafsız üs",
-		"tiers": [[2, 10], [4, 20], [6, 30], [8, 40], [9, 50], [10, 60], [11, 70], [12, 80], [13, 90], [14, 100]]},
+		"tiers": [[10, 10], [20, 20], [30, 30], [40, 40], [50, 50], [60, 60], [70, 70], [80, 80], [90, 90], [100, 100]]},
 ]
 const BAND_NAMES := ["Kolay-Orta", "Orta", "Orta-Zor", "Zor", "Çok Zor"]
 ## Zorluk eğrisi: [bölüm, bot becerisi 0..1]. Aradaki bölümler doğrusal geçer.

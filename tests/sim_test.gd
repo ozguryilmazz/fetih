@@ -321,13 +321,13 @@ func _test_quest_counting() -> void:
 	var sd: Node = root.get_node("SaveData")
 	var backup := {"gold": sd.gold, "stars": sd.stars.duplicate(), "level": sd.unlocked_level}
 	sd.quest_day = ""
-	sd.quest_add("kills", 120.0)
-	_check(sd.quest_value("kills") == 120 and sd.quest_ready_gold("kills") == 40, "120 öldürme: 50 ve 100 kademeleri hazır (10 + 30)")
+	sd.quest_add("kills", 220.0)
+	_check(sd.quest_value("kills") == 220 and sd.quest_ready_gold("kills") == 40, "220 öldürme: 100 ve 200 kademeleri hazır (10 + 30)")
 	var g0: int = sd.gold
 	_check(sd.claim_quest("kills") == 40 and sd.gold == g0 + 40 and sd.quest_claimed_count("kills") == 2, "ödül alındı, 2 kademe işaretlendi")
 	_check(sd.quest_ready_gold("kills") == 0, "aynı kademe iki kez alınamaz")
 	sd.quest_add("kills", 100.0)
-	_check(sd.quest_ready_gold("kills") == 50, "220'de 200 kademesi hazır (50)")
+	_check(sd.quest_ready_gold("kills") == 50, "320'de 300 kademesi hazır (50)")
 	sd.stars.erase(GameConfig.MAX_LEVEL)
 	sd.record_win(GameConfig.MAX_LEVEL, 1)
 	sd.record_win(GameConfig.MAX_LEVEL, 1)
