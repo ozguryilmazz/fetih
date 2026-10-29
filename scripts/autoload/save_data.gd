@@ -18,6 +18,10 @@ var stars := {}
 ## Günlük ödül: son alındığı gün (YYYY-MM-DD) ve serideki gün (1..7).
 var daily_last := ""
 var daily_streak := 0
+## Günlük görevler: hangi günün ilerlemesi, sayaçlar, alınan kademe sayısı.
+var quest_day := ""
+var quest_progress := {}
+var quest_claimed := {}
 ## Hayatta kalma rekorları
 var survival_best := 0.0
 var survival_best_wave := 0
@@ -45,6 +49,9 @@ func load_data() -> void:
 				stars[int(key)] = int(cf.get_value("stars", key, 0))
 		daily_last = cf.get_value("daily", "last", "")
 		daily_streak = cf.get_value("daily", "streak", 0)
+		quest_day = cf.get_value("quests", "day", "")
+		quest_progress = cf.get_value("quests", "progress", {})
+		quest_claimed = cf.get_value("quests", "claimed", {})
 		survival_best = cf.get_value("survival", "best", 0.0)
 		survival_best_wave = cf.get_value("survival", "best_wave", 0)
 		survival_wins = cf.get_value("survival", "wins", 0)
@@ -69,6 +76,9 @@ func save() -> void:
 		cf.set_value("stars", str(level), stars[level])
 	cf.set_value("daily", "last", daily_last)
 	cf.set_value("daily", "streak", daily_streak)
+	cf.set_value("quests", "day", quest_day)
+	cf.set_value("quests", "progress", quest_progress)
+	cf.set_value("quests", "claimed", quest_claimed)
 	cf.set_value("survival", "best", survival_best)
 	cf.set_value("survival", "best_wave", survival_best_wave)
 	cf.set_value("survival", "wins", survival_wins)
@@ -113,6 +123,8 @@ func total_stars() -> int:
 ## Kazanılan bölümü kaydeder, verilen altını döndürür.
 func record_win(level: int, earned_stars: int) -> int:
 	var prev := best_stars(level)
+	if prev == 0:
+		quest_add("new_levels", 1.0)
 	var g := GameConfig.level_gold(level, earned_stars, prev)
 	gold += g
 	if earned_stars > prev:
@@ -170,4 +182,71 @@ func record_survival(time_sec: float, waves: int, won: bool) -> int:
 	if won:
 		survival_wins += 1
 	save()
+	return g
+
+
+# ---------------------------------------------------------------- günlük görevler
+
+## Gün değiştiyse görevleri sıfırlar.
+func _quest_check_day() -> void:
+	var t := today()
+	if quest_day != t:
+		quest_day = t
+		quest_progress = {}
+		quest_claimed = {}
+
+
+func quest_add(id: String, n: float) -> void:
+	_quest_check_day()
+	quest_progress[id] = float(quest_progress.get(id, 0.0)) + n
+
+
+func quest_value(id: String) -> int:
+	_quest_check_day()
+	return int(floor(float(quest_progress.get(id, 0.0)) + 0.0001))
+
+
+func quest_claimed_count(id: String) -> int:
+	_quest_check_day()
+	return int(quest_claimed.get(id, 0))
+
+
+static func quest_def(id: String) -> Dictionary:
+	for q in GameConfig.QUESTS:
+		if q["id"] == id:
+			return q
+	return {}
+
+
+## Ulaşılmış ama alınmamış kademelerin toplam altını.
+func quest_ready_gold(id: String) -> int:
+	var tiers: Array = quest_def(id)["tiers"]
+	var v := quest_value(id)
+	var g := 0
+	for i in range(quest_claimed_count(id), tiers.size()):
+		if v >= tiers[i][0]:
+			g += tiers[i][1]
+	return g
+
+
+func quests_ready_total() -> int:
+	var g := 0
+	for q in GameConfig.QUESTS:
+		g += quest_ready_gold(q["id"])
+	return g
+
+
+## Ulaşılmış tüm kademelerin ödülünü verir; verilen altını döndürür.
+func claim_quest(id: String) -> int:
+	var tiers: Array = quest_def(id)["tiers"]
+	var v := quest_value(id)
+	var c := quest_claimed_count(id)
+	var g := 0
+	while c < tiers.size() and v >= tiers[c][0]:
+		g += tiers[c][1]
+		c += 1
+	if g > 0:
+		quest_claimed[id] = c
+		gold += g
+		save()
 	return g

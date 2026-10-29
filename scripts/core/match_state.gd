@@ -371,8 +371,11 @@ func _arrive_one(g: Dictionary) -> void:
 	if b.get("shielded", false):
 		# Kalkanlı üs hasar almaz; gelen asker kalkana çarpıp yok olur.
 		events.append({"type": "shield", "base": b["id"], "owner": g["owner"], "pos": pos})
+		_kill(b["owner"], g["owner"], 1.0)
 		return
 	var defense: float = base_type(b)["defense"]
+	var troops_before: float = b["troops"]
+	var elite_before: float = b.get("elite", 0.0)
 	# Önce normal askerler ölür, sonra madenin 2 güçlü askerleri.
 	b["troops"] -= 1.0 / defense
 	if b["troops"] < 0.0 and b.get("elite", 0.0) > 0.0:
@@ -382,6 +385,13 @@ func _arrive_one(g: Dictionary) -> void:
 			b["troops"] = b["elite"] * GameConfig.ELITE_POWER
 			b["elite"] = 0.0
 	events.append({"type": "hit", "base": b["id"], "owner": g["owner"], "pos": pos})
+	# Ölen askerler (görevler için): savunanlar saldırana, ölen saldıran savunana yazılır.
+	if b["troops"] < 0.0:
+		_kill(g["owner"], b["owner"], troops_before + elite_before)
+		_kill(b["owner"], g["owner"], 1.0 + b["troops"] * defense)
+	else:
+		_kill(g["owner"], b["owner"], troops_before - b["troops"] + elite_before - b.get("elite", 0.0))
+		_kill(b["owner"], g["owner"], 1.0)
 	if b["troops"] < 0.0:
 		var old: int = b["owner"]
 		b["owner"] = g["owner"]
@@ -446,19 +456,26 @@ func _resolve_clashes() -> void:
 		var b: Dictionary = p[1]
 		if group_count(a) <= 0 or group_count(b) <= 0:
 			continue
-		_lose(a)
-		_lose(b)
+		_lose(a, b["owner"])
+		_lose(b, a["owner"])
 		a["fighting"] = true
 		b["fighting"] = true
 		events.append({"type": "clash", "a": a["owner"], "b": b["owner"],
 			"pos": (group_position(a) + group_position(b)) * 0.5})
 
 
-func _lose(g: Dictionary) -> void:
+func _lose(g: Dictionary, killer: int) -> void:
 	if g["shield"] > 0:
 		g["shield"] -= 1
 	else:
 		g["f"] += 1
+		events.append({"type": "clash_kill", "killer": killer, "victim": g["owner"], "n": 1.0})
+
+
+## Üs saldırısında ölen askerleri olay olarak bildirir (yol çarpışmaları ayrı: clash_kill).
+func _kill(killer: int, victim: int, n: float) -> void:
+	if n > 0.0001:
+		events.append({"type": "kill", "killer": killer, "victim": victim, "n": n})
 
 
 ## Kolu `row` sırasından ikiye böler; arka parçayı (yeni kol) döndürür.

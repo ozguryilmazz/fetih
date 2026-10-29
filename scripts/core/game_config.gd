@@ -103,6 +103,17 @@ const BOSS_GOLD_FACTOR := 2
 const STAR_LOSS_LIMIT := 2
 ## Günlük ödül serisi (7. günden sonra başa döner; bir gün kaçırılırsa seri sıfırlanır).
 const DAILY_REWARDS := [50, 75, 100, 125, 150, 200, 300]
+## Günlük görevler: her gün sıfırlanır. Kademeler: [hedef, altın]; her kademe ayrı alınır.
+const QUESTS := [
+	{"id": "kills", "name": "Asker öldür", "desc": "Üslere saldırırken ve savunurken (yol çarpışmaları hariç)",
+		"tiers": [[50, 10], [100, 30], [200, 50], [400, 80], [500, 100], [700, 130], [1000, 150]]},
+	{"id": "new_levels", "name": "Yeni bölüm bitir", "desc": "Daha önce geçilmemiş bölümler sayılır",
+		"tiers": [[1, 20], [2, 40], [3, 60], [4, 80], [5, 100], [6, 120], [7, 150], [8, 180], [9, 200], [10, 250]]},
+	{"id": "clash_kills", "name": "Yol çarpışmasında asker öldür", "desc": "Rakip kollarla yolda karşılaşınca",
+		"tiers": [[10, 10], [20, 30], [30, 50], [40, 70], [50, 90], [60, 110], [70, 150], [80, 200], [90, 300], [100, 500]]},
+	{"id": "captures", "name": "Üs ele geçir", "desc": "Rakip veya tarafsız üs",
+		"tiers": [[2, 10], [4, 20], [6, 30], [8, 40], [9, 50], [10, 60], [11, 70], [12, 80], [13, 90], [14, 100]]},
+]
 const BAND_NAMES := ["Kolay-Orta", "Orta", "Orta-Zor", "Zor", "Çok Zor"]
 ## Zorluk eğrisi: [bölüm, bot becerisi 0..1]. Aradaki bölümler doğrusal geçer.
 const SKILL_CURVE := [[1, 0.0], [10, 0.25], [20, 0.45], [30, 0.62], [40, 0.78], [50, 0.95]]

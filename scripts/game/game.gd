@@ -32,6 +32,8 @@ var _press_base := -1
 var _press_pos := Vector2.ZERO
 var _press_ms := 0
 var _menu_base := -1
+## Maç başında hazır bekleyen görev ödülü (maç sonunda yeni ödül var mı diye).
+var _quest_gold_start := 0
 
 var _acc := 0.0
 var _dragging := false
@@ -67,6 +69,7 @@ func _ready() -> void:
 	_build_hud()
 	get_viewport().size_changed.connect(_layout)
 	_layout()
+	_quest_gold_start = SaveData.quests_ready_total()
 	_show_intro()
 
 
@@ -151,12 +154,19 @@ func _consume_events() -> void:
 				_burst(e["pos"], col, 18, 220.0, 0.6, 4.5)
 				_pop[e["base"]] = 0.35
 				if e["to"] == my_id:
+					SaveData.quest_add("captures", 1.0)
 					_vibrate(35, 0.6)
 					_shake(4.0, 0.15)
 				elif e["from"] == my_id:
 					bases_lost += 1
 					_vibrate(90, 1.0)
 					_shake(9.0, 0.25)
+			"kill":
+				if e["killer"] == my_id:
+					SaveData.quest_add("kills", e["n"])
+			"clash_kill":
+				if e["killer"] == my_id:
+					SaveData.quest_add("clash_kills", e["n"])
 			"build":
 				var col := state.player_color(e["owner"])
 				var bp: Vector2 = state.bases[e["base"]]["pos"]
@@ -806,12 +816,15 @@ func _show_end_panel(won: bool, stars: int, gold: int, prev: int) -> void:
 		elif prev > 0:
 			note = "  (yeni rekor!)"
 		_add_title(box, "+%d altın%s" % [gold, note], 36, UIKit.ACCENT)
+		_add_quest_note(box)
 		if Session.level < GameConfig.MAX_LEVEL:
 			box.add_child(UIKit.button("Sonraki Bölüm", func():
 				Session.level += 1
 				Session.go("game"), 100))
 		else:
 			_add_title(box, "Tüm bölümleri bitirdin!", 30, UIKit.ACCENT)
+	else:
+		_add_quest_note(box)
 	box.add_child(UIKit.button("Tekrar Oyna", func(): Session.go("game")))
 	box.add_child(UIKit.button("Ana Menü", func(): Session.go("main_menu")))
 
@@ -862,8 +875,21 @@ func _show_survival_end(won: bool, gold: int, record: bool) -> void:
 	else:
 		_add_title(box, "En iyi: %s" % _fmt_time(SaveData.survival_best), 26, UIKit.MUTED)
 	_add_title(box, "+%d altın (mağaza)" % gold, 36, UIKit.ACCENT)
+	_add_quest_note(box)
 	box.add_child(UIKit.button("Tekrar Oyna", func(): Session.go("game"), 100))
 	box.add_child(UIKit.button("Ana Menü", func(): Session.go("main_menu")))
+
+
+## Maçta yeni görev ödülü hazır olduysa bitiş panelinde göster.
+func _add_quest_note(box: VBoxContainer) -> void:
+	var ready := SaveData.quests_ready_total()
+	if ready > _quest_gold_start:
+		_add_title(box, "Görev ödülü hazır: +%d altın (Görevler)" % ready, 26, Color("#8be28b"))
+
+
+func _exit_tree() -> void:
+	# Maç yarıda bırakılsa da görev ilerlemesi kaybolmasın.
+	SaveData.save()
 
 
 func _notification(what: int) -> void:

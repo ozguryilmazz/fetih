@@ -13,6 +13,7 @@ func _initialize() -> void:
 	_test_crossing_clash()
 	_test_levels_and_rewards()
 	_test_survival_rules()
+	_test_quest_counting()
 	_test_bot_matches()
 	print("SONUC: ", "HATA" if _failed else "TAMAM")
 	quit(1 if _failed else 0)
@@ -287,6 +288,61 @@ func _test_survival_rules() -> void:
 	_check(sv.wave_size(1) == GameConfig.WAVE_BASE and sv.wave_size(10) > sv.wave_size(5) * 2, "dalgalar hızlanarak büyüyor (%d, %d, %d)" % [sv.wave_size(1), sv.wave_size(5), sv.wave_size(10)])
 	Survival.fortress_of(st, 0)["owner"] = 1
 	_check(Survival.result(st) == "lose", "kale düşünce oyun biter")
+
+
+func _sum_events(s: MatchState, kind: String, killer: int) -> float:
+	var t := 0.0
+	for e in s.events:
+		if e["type"] == kind and e["killer"] == killer:
+			t += e["n"]
+	return t
+
+
+func _test_quest_counting() -> void:
+	print("Görevler: sayma ve ödüller")
+	# Üs saldırısı: 25 asker, 10 savunana. 10 savunan + 10 saldıran ölür, 15 saldıran üssü alır.
+	var s := MatchState.new()
+	s.players = [_player(0), _player(1)]
+	s.bases = [_base(0, Vector2(100, 300), 0, 25.0), _base(1, Vector2(500, 300), 1, 10.0)]
+	_no_production(s)
+	s.apply_command({"type": "send", "owner": 0, "sources": [0], "targets": [1]})
+	_run(s, 20.0)
+	_check(is_equal_approx(_sum_events(s, "kill", 0), 10.0) and is_equal_approx(_sum_events(s, "kill", 1), 10.0),
+		"üs saldırısı: oyuncu 10 öldürdü, savunma 10 öldürdü (bulunan: %.1f, %.1f)" % [_sum_events(s, "kill", 0), _sum_events(s, "kill", 1)])
+	_check(_sum_events(s, "clash_kill", 0) == 0.0, "üs saldırısı yol çarpışması sayılmadı")
+
+	# Yol çarpışması ayrı sayılır: 15'e 15, Yol Savaşı 1 -> oyuncu 15 öldürür, rakip 14.
+	s = _head_on(1)
+	_check(is_equal_approx(_sum_events(s, "clash_kill", 0), 15.0) and is_equal_approx(_sum_events(s, "clash_kill", 1), 14.0),
+		"yol çarpışması: 15 ve 14 öldürme (bulunan: %.0f, %.0f)" % [_sum_events(s, "clash_kill", 0), _sum_events(s, "clash_kill", 1)])
+	_check(is_equal_approx(_sum_events(s, "kill", 0), 0.0), "kalan 1 asker boş üsse girdi, o öldürme sayılmadı")
+
+	# Kayıt: kademeli ödül, alma, gece yarısı sıfırlama, sadece yeni bölümler.
+	var sd: Node = root.get_node("SaveData")
+	var backup := {"gold": sd.gold, "stars": sd.stars.duplicate(), "level": sd.unlocked_level}
+	sd.quest_day = ""
+	sd.quest_add("kills", 120.0)
+	_check(sd.quest_value("kills") == 120 and sd.quest_ready_gold("kills") == 40, "120 öldürme: 50 ve 100 kademeleri hazır (10 + 30)")
+	var g0: int = sd.gold
+	_check(sd.claim_quest("kills") == 40 and sd.gold == g0 + 40 and sd.quest_claimed_count("kills") == 2, "ödül alındı, 2 kademe işaretlendi")
+	_check(sd.quest_ready_gold("kills") == 0, "aynı kademe iki kez alınamaz")
+	sd.quest_add("kills", 100.0)
+	_check(sd.quest_ready_gold("kills") == 50, "220'de 200 kademesi hazır (50)")
+	sd.stars.erase(GameConfig.MAX_LEVEL)
+	sd.record_win(GameConfig.MAX_LEVEL, 1)
+	sd.record_win(GameConfig.MAX_LEVEL, 1)
+	_check(sd.quest_value("new_levels") == 1, "aynı bölümü tekrar bitirmek yeni bölüm sayılmadı")
+	sd.quest_day = "2000-01-01"
+	_check(sd.quest_value("kills") == 0 and sd.quest_claimed_count("kills") == 0, "gün değişince görevler sıfırlandı")
+	var all_tiers := 0
+	for q in GameConfig.QUESTS:
+		all_tiers += q["tiers"].size()
+	_check(GameConfig.QUESTS.size() == 4 and all_tiers == 37, "4 görev, 37 kademe")
+	sd.gold = backup["gold"]
+	sd.stars = backup["stars"]
+	sd.unlocked_level = backup["level"]
+	sd.quest_day = ""
+	sd.save()
 
 
 func _test_bot_matches() -> void:

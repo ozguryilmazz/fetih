@@ -2,7 +2,7 @@ extends SceneTree
 ## Ekranları sırayla açar, oyun ekranında gerçek bir sürükle-bırak hareketi yapar.
 ## godot --headless --path . -s tests/scene_smoke_test.gd
 
-const SCENES := ["main_menu", "level_select", "shop", "settings", "multiplayer"]
+const SCENES := ["main_menu", "level_select", "shop", "settings", "multiplayer", "quests"]
 
 
 func _initialize() -> void:

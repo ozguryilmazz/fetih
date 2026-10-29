@@ -2,6 +2,7 @@ extends Control
 
 var _gold_label: Label
 var _daily_btn: Button
+var _quest_btn: Button
 var _popup: Control
 
 
@@ -9,13 +10,13 @@ func _ready() -> void:
 	var box := UIKit.screen(self, "")
 
 	var preview := IconPreview.new()
-	preview.custom_minimum_size = Vector2(0, 110)
+	preview.custom_minimum_size = Vector2(0, 90)
 	preview.color = GameConfig.color(SaveData.color_index)
 	preview.icon = SaveData.icon_index
 	preview.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	box.add_child(preview)
 
-	var title := UIKit.label("FETİH", 80, UIKit.TEXT)
+	var title := UIKit.label("FETİH", 72, UIKit.TEXT)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(title)
 
@@ -45,6 +46,8 @@ func _ready() -> void:
 	box.add_child(UIKit.button("Bölümler", func(): Session.go("level_select")))
 	_daily_btn = UIKit.button("", _open_daily)
 	box.add_child(_daily_btn)
+	_quest_btn = UIKit.button("", func(): Session.go("quests"))
+	box.add_child(_quest_btn)
 	box.add_child(UIKit.button("Mağaza", func(): Session.go("shop")))
 	box.add_child(UIKit.button("Çok Oyunculu", func(): Session.go("multiplayer")))
 	box.add_child(UIKit.button("Ayarlar", func(): Session.go("settings")))
@@ -52,7 +55,7 @@ func _ready() -> void:
 	box.add_theme_constant_override("separation", 14)
 	for c in box.get_children():
 		if c is Button and c.custom_minimum_size.y < 100:
-			c.custom_minimum_size.y = 80
+			c.custom_minimum_size.y = 74
 	_refresh()
 
 	if SaveData.can_claim_daily():
@@ -61,6 +64,11 @@ func _ready() -> void:
 
 func _refresh() -> void:
 	_gold_label.text = UIKit.gold_text(SaveData.gold)
+	var q_ready := SaveData.quests_ready_total()
+	_quest_btn.text = "Görevler  (+%d hazır!)" % q_ready if q_ready > 0 else "Görevler"
+	if q_ready > 0:
+		_quest_btn.add_theme_stylebox_override("normal", UIKit.box(Color("#3fae6a").darkened(0.3)))
+		_quest_btn.add_theme_stylebox_override("hover", UIKit.box(Color("#3fae6a").darkened(0.15)))
 	var ready_now := SaveData.can_claim_daily()
 	_daily_btn.text = "Günlük Ödül  (hazır!)" if ready_now else "Günlük Ödül"
 	if ready_now:
