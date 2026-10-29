@@ -95,6 +95,18 @@ func base_growth(b: Dictionary) -> float:
 	return g * float(p["prod"]) * (1.0 + float(p.get("pb", 0.0)))
 
 
+## Üretimin durduğu sınıra ulaştı mı? (Maden için kendi askerleri sayılır.)
+func is_full(b: Dictionary) -> bool:
+	if b["owner"] == NEUTRAL:
+		return false
+	match b["type"]:
+		"mine":
+			return b.get("elite", 0.0) >= GameConfig.mine_capacity(b.get("level", 1)) - 0.5
+		"barracks":
+			return b["troops"] >= GameConfig.barracks_capacity(b.get("level", 1)) - 0.5
+	return b["troops"] >= float(base_type(b)["capacity"]) - 0.5
+
+
 ## Üssü almak için gereken (savunma çarpanlı) asker gücü.
 func base_strength(b: Dictionary) -> float:
 	return (b["troops"] + b.get("elite", 0.0) * GameConfig.ELITE_POWER) * float(base_type(b)["defense"])

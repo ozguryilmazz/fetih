@@ -389,6 +389,8 @@ func _draw_base(b: Dictionary) -> void:
 		c += Vector2(_rng.randf_range(-2.5, 2.5), _rng.randf_range(-2.5, 2.5))
 
 	draw_circle(c + Vector2(0, 5), r, Color(0, 0, 0, 0.3))
+	if state.is_full(b):
+		_draw_full_glow(c, r, col, id)
 	var kind: String = b["type"]
 	if kind == "fortress" or kind == "keep" or kind == "citadel":
 		_draw_fortress(c, r, col)
@@ -415,6 +417,15 @@ func _draw_base(b: Dictionary) -> void:
 		_text_centered(str(int(b["troops"] + b.get("elite", 0.0))), c, 30, Color("#ffe082"))
 	else:
 		_text_centered(str(int(b["troops"])), c, 30, Color.WHITE)
+
+
+## Dolu üs (üretim durdu): çevresinde nabız gibi atan parlama.
+func _draw_full_glow(c: Vector2, r: float, col: Color, id: int) -> void:
+	var pulse := 0.5 + 0.5 * sin(Time.get_ticks_msec() / 220.0 + id)
+	var glow := col.lightened(0.5)
+	for k in 3:
+		glow.a = (0.65 - k * 0.18) * (0.55 + 0.45 * pulse)
+		draw_arc(c, r + 7.0 + k * 6.0 + pulse * 3.0, 0.0, TAU, 64, glow, 6.0, true)
 
 
 ## Kışla: içinde koyu kalkan şekli, altında seviye yıldızları.
