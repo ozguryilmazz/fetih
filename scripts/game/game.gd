@@ -85,6 +85,7 @@ var _emote_ready_ms := 0
 var _restarting := false
 var _rematch_btn: Button
 var _rematch_label: Label
+var _rematch_seen := {}     # bildirimi gösterilmiş rövanş isteyen slotlar
 
 
 func _ready() -> void:
@@ -1428,16 +1429,47 @@ func _on_rematch_changed(info: Dictionary) -> void:
 		_rematch_btn.disabled = true
 		return
 	var votes: Array = info["votes"]
-	_rematch_label.text = "Rövanş: %d / %d oyuncu hazır" % [votes.size(), info["total"]]
+	# Rövanş isteyen diğer oyuncular: belirgin bildirim + titreşim (her oyuncu için bir kez).
+	var askers: Array = []
+	for v in votes:
+		if v != my_id and v < state.players.size():
+			askers.append(state.players[v]["name"])
+			if not _rematch_seen.has(v):
+				_rematch_seen[v] = true
+				_vibrate(120, 0.9)
+				_pulse(_rematch_btn)
 	if votes.has(my_id):
 		_rematch_btn.disabled = true
 		_rematch_btn.text = "Rövanş istendi"
+		var waiting := int(info["total"]) - votes.size()
+		if waiting > 0:
+			_rematch_label.text = "Rövanş isteğin gönderildi. Rakibin cevabı bekleniyor..."
+			_rematch_label.add_theme_color_override("font_color", UIKit.MUTED)
+	elif not askers.is_empty():
+		_rematch_label.text = "%s rövanş istiyor!" % ", ".join(askers)
+		_rematch_label.add_theme_font_size_override("font_size", 32)
+		_rematch_label.add_theme_color_override("font_color", UIKit.ACCENT)
+		_rematch_btn.text = "Rövanşı Kabul Et"
 	if Net.is_host and votes.size() >= int(info["total"]):
 		_rematch_label.text = "Yeni harita kuruluyor..."
 		var players: Array = []
 		for p in state.players:
 			players.append(MatchState.make_player(p["id"], p["name"], p["color"], p["icon"], false, {}))
 		Net.start_rematch(MatchState.create(randi(), players, 8 + 3 * players.size(), 6, 16))
+	elif votes.size() >= int(info["total"]):
+		_rematch_label.text = "Yeni harita kuruluyor..."
+
+
+## Dikkat çeksin diye düğmeyi birkaç kez büyütüp küçültür.
+func _pulse(c: Control) -> void:
+	if not is_instance_valid(c):
+		return
+	c.pivot_offset = c.size / 2.0
+	var tw := c.create_tween()
+	for i in 3:
+		tw.tween_property(c, "scale", Vector2(1.08, 1.08), 0.15)
+		tw.tween_property(c, "scale", Vector2.ONE, 0.15)
+
 
 ## Oyun durmaz (ortak maç); sadece çıkış seçeneği sunar.
 func _online_menu() -> void:

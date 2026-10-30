@@ -115,8 +115,12 @@ func _rematch(net: Node, game: Node2D) -> void:
 	_check(got.get("emo", []) == [other, 4 if other == 0 else 2], "rakibin ifadesi geldi (%s)" % [got.get("emo", [])])
 	_check(game._rematch_btn != null and not game._rematch_btn.disabled, "Rövanş düğmesi var")
 	if role.begins_with("client"):
-		await create_timer(1.0).timeout  # oylar farklı zamanlarda gelsin
+		# Host önce istedi: client'ın ekranında açık bildirim görünmeli.
+		_check(await _wait(func(): return game._rematch_label.text.contains("rövanş istiyor") and game._rematch_btn.text == "Rövanşı Kabul Et", 10),
+			"rakibin rövanş isteği bildirildi: '%s'" % game._rematch_label.text)
 	game._rematch_btn.pressed.emit()
+	if role.begins_with("host"):
+		_check(game._rematch_label.text.contains("bekleniyor"), "istek gönderildi, cevap bekleniyor yazıyor")
 	var gid := game.get_instance_id()
 	_check(await _wait(func(): return current_scene and current_scene.get_instance_id() != gid and _scene_name() == "Game", 20), "rövanş: oyun ekranı yeniden açıldı")
 	await process_frame
