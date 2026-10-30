@@ -43,6 +43,7 @@ func _scene_name() -> String:
 func _run() -> void:
 	var net: Node = root.get_node("Net")
 	net.match_ended.connect(func(i): got["end"] = i)
+	net.emote_received.connect(func(slot, e): got["emo"] = [slot, e])
 	change_scene_to_file("res://scenes/multiplayer.tscn")
 	await _wait(func(): return _scene_name() == "Multiplayer", 5)
 	var mp: Node = current_scene
@@ -64,20 +65,25 @@ func _run() -> void:
 	var game: Node2D = current_scene
 	_check(game.online and game.my_id == (0 if role.begins_with("host") else 1), "çevrimiçi mod, slot %d" % game.my_id)
 	Engine.time_scale = 1.0 if role.ends_with("_kill") or FileAccess.file_exists(dir + "/slow") else 3.0
-	var bot := BotAI.new(game.my_id, 0.8, 99 if role == "host" else 7)
+	var rematch := role.ends_with("_re")
+	var bot := BotAI.new(game.my_id, 0.8, 99 if role.begins_with("host") else 7)
+	var emo_sent := false
 	var sent := 0
 	var t0 := Time.get_ticks_msec()
 	var snaps := [0]
-	if role != "host":
+	if not role.begins_with("host"):
 		net.snapshot_received.connect(func(_s): snaps[0] += 1)
 	var host_cmds := [0]
-	if role == "host":
+	if role.begins_with("host"):
 		net.command_received.connect(func(_s, _c): host_cmds[0] += 1)
 	while not game.finished:
 		await process_frame
 		for c in bot.update(game.state, 1.0 / 60.0 * Engine.time_scale):
 			game._issue(c)
 			sent += 1
+		if rematch and not emo_sent and game.phase == "play" and Time.get_ticks_msec() - t0 > 3000:
+			emo_sent = true
+			game._send_emote(4 if game.my_id == 0 else 2)
 		if role.ends_with("_kill") and Time.get_ticks_msec() - t0 > 2500:
 			FileAccess.open(dir + "/expect_disconnect", FileAccess.WRITE).store_string("1")
 		if role.ends_with("_kill") and Time.get_ticks_msec() - t0 > 3000:
@@ -91,11 +97,40 @@ func _run() -> void:
 	FileAccess.open(dir + "/end_" + role, FileAccess.WRITE).store_string(JSON.stringify(e))
 	if FileAccess.file_exists(dir + "/expect_disconnect"):
 		_check(e.get("reason") == "disconnect", "client kopunca maç 'bağlantı koptu' ile bitti")
-	elif role == "host":
+	elif role.begins_with("host"):
 		_check(host_cmds[0] > 0, "client hamleleri host'a ulaştı (%d)" % host_cmds[0])
 	else:
 		_check(snaps[0] > 10, "durum paketleri geldi (%d)" % snaps[0])
 	_check(game.finished and not e.is_empty(), "maç bitti (%s)" % e.get("reason", "-"))
+	if rematch:
+		await _rematch(net, game)
 	await create_timer(1.0).timeout
 	print("SONUC: ", "HATA" if got.get("fail", false) else "TAMAM")
 	quit(1 if got.get("fail", false) else 0)
+
+
+## İfade ulaştı mı + iki taraf rövanş isteyince yeni maç aynı odada başlıyor mu?
+func _rematch(net: Node, game: Node2D) -> void:
+	var other := 1 if game.my_id == 0 else 0
+	_check(got.get("emo", []) == [other, 4 if other == 0 else 2], "rakibin ifadesi geldi (%s)" % [got.get("emo", [])])
+	_check(game._rematch_btn != null and not game._rematch_btn.disabled, "Rövanş düğmesi var")
+	if role.begins_with("client"):
+		await create_timer(1.0).timeout  # oylar farklı zamanlarda gelsin
+	game._rematch_btn.pressed.emit()
+	var gid := game.get_instance_id()
+	_check(await _wait(func(): return current_scene and current_scene.get_instance_id() != gid and _scene_name() == "Game", 20), "rövanş: oyun ekranı yeniden açıldı")
+	await process_frame
+	var g2: Node2D = current_scene
+	_check(net._round == 1 and g2.online and not g2.finished, "yeni tur (%d), maç sürüyor" % net._round)
+	_check(await _wait(func(): return g2.phase == "play" and g2.state.time > 1.0, 15), "yeni maç oynanıyor")
+	if role.begins_with("client"):
+		await create_timer(0.5).timeout
+		_check(g2.state.time > 1.0, "client yeni maçın durum paketlerini alıyor")
+	# Biri ayrılınca diğeri "rakip ayrıldı" görmeli: ikinci maçı host bitirir.
+	if role.begins_with("host"):
+		net.finish(0)
+		await create_timer(1.0).timeout
+		net.leave()
+	else:
+		_check(await _wait(func(): return g2.finished, 15), "ikinci maç bitti")
+		_check(await _wait(func(): return g2._rematch_label != null and g2._rematch_label.text.contains("ayrıldı"), 15), "host çıkınca 'Rakip ayrıldı' görünüyor")

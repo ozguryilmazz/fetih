@@ -33,6 +33,8 @@ echo "== Oda süresi"
 pair tests/net_lobby_test.gd expire_host expire_client "--ttl=3000"
 echo "== Uçtan uca maç"
 pair tests/net_match_test.gd host client
+echo "== İfade + rövanş"
+pair tests/net_match_test.gd host_re client_re
 echo "== Maç ortasında client kopması"
 pair tests/net_match_test.gd host client_kill
 echo "== Maç ortasında host kopması"

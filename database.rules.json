@@ -24,6 +24,17 @@
             ".validate": "newData.child('c').isString() && newData.child('c').val().length < 2000"
           }
         },
+        "emo": {
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid && root.child('rooms/' + $code + '/players/' + auth.uid).exists()",
+            ".validate": "newData.hasChildren(['e', 'n']) && newData.child('e').isNumber() && newData.child('e').val() >= 0 && newData.child('e').val() < 6"
+          }
+        },
+        "rematch": {
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid && root.child('rooms/' + $code + '/players/' + auth.uid).exists() && root.child('rooms/' + $code + '/end').exists()"
+          }
+        },
         "end": {
           ".write": "auth != null && !data.exists() && root.child('rooms/' + $code + '/players/' + auth.uid).exists()"
         }

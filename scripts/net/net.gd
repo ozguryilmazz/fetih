@@ -9,6 +9,8 @@ extends Node
 ##   snap:    "<json>"   saniyede 5 kez maç durumu (host yazar)
 ##   cmds:    {<push id>: {uid, c: "<json komut>"}}   oyuncu hamleleri
 ##   end:     {reason: "win" | "disconnect" | "left", winner?, by?}
+##   emo:     {<uid>: {e: ifade no, n: sayaç}}   maç içi ifade (emoji)
+##   rematch: {<uid>: true}   maç sonu rövanş oyu; herkes isteyince host yeni maç kurar
 ##
 ## Host maçı hesaplar; diğerleri komut gönderir ve host'un durumunu çizer.
 ## Herhangi bir oyuncunun bağlantısı koparsa maç herkes için biter.
@@ -21,6 +23,9 @@ signal match_started(setup: Dictionary, my_slot: int)
 signal snapshot_received(snap: Dictionary)
 signal command_received(slot: int, cmd: Dictionary)
 signal match_ended(info: Dictionary)
+signal emote_received(slot: int, emote: int)
+## Rövanş durumu: votes = oy veren slotlar, total = maçtaki oyuncu, gone = biri ayrıldı
+signal rematch_changed(info: Dictionary)
 
 var fb: Firebase
 var code := ""
@@ -40,6 +45,10 @@ var _lobby_since := 0
 var _ended := false
 var _last_snap := ""
 var _waiting_ready: Array = []
+var _emo_seen := {}        # uid -> son görülen sayaç
+var _emo_n := 0
+var _round := 0
+var _gone := false
 
 
 func _ready() -> void:
@@ -202,7 +211,7 @@ func _enter(c: String) -> void:
 	_hb_timer = 0.0
 	status.emit("")
 	# Host kendi yazdığı durum paketini geri indirmesin diye sadece gereken yolları dinler.
-	var paths := ["players", "hb", "cmds", "end"] if is_host else [""]
+	var paths := ["players", "hb", "cmds", "end", "emo", "rematch"] if is_host else [""]
 	for p in paths:
 		var full := "rooms/%s/%s" % [code, p] if p != "" else "rooms/" + code
 		var s := fb.listen(full)
@@ -261,12 +270,30 @@ func _changed(top: String) -> void:
 				_last_seen[uid] = now
 	if all or top == "players":
 		lobby_changed.emit(lobby_players())
+		if in_match and _ended:
+			var present: Dictionary = _room.get("players", {})
+			for uid in _slots.keys():
+				if not present.has(uid):
+					_gone = true
+			rematch_changed.emit(rematch_info())
 		if in_match:
 			var ps: Dictionary = _room.get("players", {})
 			for uid in _slots.keys():
 				if not ps.has(uid) and not _ended:
 					_end_match({"reason": "left", "by": uid})
 					return
+	if (all or top == "emo") and in_match and not _ended:
+		var emo: Dictionary = _room.get("emo", {})
+		for uid in emo.keys():
+			var e: Variant = emo[uid]
+			if uid == fb.uid or not (e is Dictionary) or not _slots.has(uid):
+				continue
+			var n := int(e.get("n", 0))
+			if _emo_seen.get(uid, -1) != n:
+				_emo_seen[uid] = n
+				emote_received.emit(_slots[uid], int(e.get("e", 0)))
+	if (all or top == "rematch") and _ended:
+		rematch_changed.emit(rematch_info())
 	if all or top == "end":
 		var e: Variant = _room.get("end")
 		if e is Dictionary and not _ended:
@@ -274,6 +301,9 @@ func _changed(top: String) -> void:
 			return
 	if not is_host:
 		if all or top == "meta":
+			if not _room.has("meta") and in_room and _ended and not _gone:
+				_gone = true  # host ayrıldı, oda silindi
+				rematch_changed.emit(rematch_info())
 			if not _room.has("meta") and in_room and not _ended:
 				if in_match:
 					_end_match({"reason": "left", "by": "host"}, false)
@@ -284,6 +314,15 @@ func _changed(top: String) -> void:
 		if (all or top == "meta" or top == "setup") and not in_match:
 			if _room.get("meta", {}).get("status") == "playing" and _room.get("setup") is String:
 				_start_from_setup(JSON.parse_string(_room["setup"]))
+		elif (all or top == "setup") and in_match and _ended and _room.get("setup") is String:
+			# Rövanş: host yeni turun haritasını yazdı.
+			var d: Variant = JSON.parse_string(_room["setup"])
+			if d is Dictionary and int(d.get("round", 0)) > _round:
+				_room.erase("end")
+				_room.erase("snap")
+				_ended = false
+				_last_snap = ""
+				_start_from_setup(d)
 		if (all or top == "snap") and in_match and _room.get("snap") is String:
 			var s: String = _room["snap"]
 			if s != _last_snap:
@@ -354,6 +393,7 @@ func _start_from_setup(d: Variant) -> void:
 		leave()
 		return
 	setup = d
+	_round = int(d.get("round", 0))
 	_slots = {}
 	for uid in slots.keys():
 		_slots[uid] = int(slots[uid])
@@ -375,6 +415,60 @@ func send_snapshot(snap: Dictionary) -> void:
 	if not is_host or not in_match or _ended:
 		return
 	fb.put("rooms/%s/snap" % code, JSON.stringify(snap), Callable(), "snap")
+
+
+## Maç içi ifade gönder (0..5).
+func send_emote(e: int) -> void:
+	if not in_match or _ended:
+		return
+	_emo_n += 1
+	fb.put("rooms/%s/emo/%s" % [code, fb.uid], {"e": e, "n": _emo_n})
+
+
+## Maç sonu rövanş oyu.
+func vote_rematch() -> void:
+	if not in_match or not _ended or _gone:
+		return
+	fb.put("rooms/%s/rematch/%s" % [code, fb.uid], true)
+	var r: Variant = _room.get("rematch", {})
+	if not (r is Dictionary):
+		r = {}
+	r[fb.uid] = true
+	_room["rematch"] = r
+	rematch_changed.emit(rematch_info())
+
+
+func rematch_info() -> Dictionary:
+	var votes: Array = []
+	var r: Variant = _room.get("rematch", {})
+	if r is Dictionary:
+		for uid in r.keys():
+			if _slots.has(uid):
+				votes.append(_slots[uid])
+	return {"votes": votes, "total": _slots.size(), "gone": _gone}
+
+
+## Host: herkes rövanş istedi; aynı oyuncularla yeni harita kurar.
+func start_rematch(state: MatchState) -> void:
+	if not is_host or not _ended or _gone:
+		return
+	_round += 1
+	var d := state.setup_dict()
+	d["slots"] = _slots
+	d["round"] = _round
+	setup = d
+	fb.patch("rooms/" + code, {"end": null, "rematch": null, "snap": null, "cmds": null, "emo": null,
+		"setup": JSON.stringify(d), "meta/status": "playing"})
+	_room.erase("end")
+	_room.erase("rematch")
+	_room.erase("cmds")
+	_room.erase("emo")
+	_seen_cmds = {}
+	_ended = false
+	var now := Time.get_ticks_msec()
+	for uid in _slots.keys():
+		_last_seen[uid] = now
+	match_started.emit(d, 0)
 
 
 ## Host: maç bitti, kazananı bildir.
@@ -403,7 +497,7 @@ func leave() -> void:
 			_end_match({"reason": "left", "by": fb.uid})
 		if is_host and (not in_match or _ended):
 			fb.remove("rooms/" + code)  # oda temizlenir
-		elif not in_match:
+		elif not in_match or _ended:
 			fb.remove("rooms/%s/players/%s" % [code, fb.uid])
 	fb.stop_listening()
 	_streams.clear()
@@ -432,3 +526,7 @@ func _reset() -> void:
 	_last_seen = {}
 	_ended = false
 	_last_snap = ""
+	_emo_seen = {}
+	_emo_n = 0
+	_round = 0
+	_gone = false
