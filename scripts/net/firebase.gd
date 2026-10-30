@@ -76,8 +76,10 @@ func _refresh() -> void:
 	_signing_in = true
 	var ch := HttpChannel.new(NetConfig.token_url())
 	_auth_refresh_channel = ch
-	var body := JSON.stringify({"grant_type": "refresh_token", "refresh_token": _refresh_token})
-	ch.request(HTTPClient.METHOD_POST, "/v1/token?key=%s" % NetConfig.api_key(), body, [], "", func(r):
+	# Google'ın belgelediği biçim: form verisi.
+	var body := "grant_type=refresh_token&refresh_token=" + _refresh_token.uri_encode()
+	ch.request(HTTPClient.METHOD_POST, "/v1/token?key=%s" % NetConfig.api_key(), body,
+			["Content-Type: application/x-www-form-urlencoded"], "", func(r):
 		_signing_in = false
 		var d: Variant = JSON.parse_string(r["text"]) if r["text"] != "" else null
 		if r["code"] != 200 or not (d is Dictionary):

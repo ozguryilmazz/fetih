@@ -80,7 +80,12 @@ func poll() -> void:
 		_connecting = false
 		_current = _queue.pop_front()
 		var hdrs := PackedStringArray(_current["headers"])
-		hdrs.append("Content-Type: application/json")
+		var has_ct := false
+		for h in hdrs:
+			if h.to_lower().begins_with("content-type"):
+				has_ct = true
+		if not has_ct:
+			hdrs.append("Content-Type: application/json")
 		var err := _client.request(_current["method"], _current["path"], hdrs, _current["body"])
 		if err != OK:
 			_finish(0, "")

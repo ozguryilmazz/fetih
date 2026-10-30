@@ -5,8 +5,8 @@ extends RefCounted
 ##  - API_KEY: Proje ayarları -> Genel -> Web API anahtarı
 ## Bu ikisi gizli değildir; asıl koruma database.rules.json kurallarıdır.
 
-const DB_URL := ""
-const API_KEY := ""
+const DB_URL := "https://zozo-c097b-default-rtdb.europe-west1.firebasedatabase.app"
+const API_KEY := "AIzaSyA-Ya4fp5q2P5vGqPQyJW1yC21iWkUTYts"
 
 const AUTH_URL := "https://identitytoolkit.googleapis.com"
 const TOKEN_URL := "https://securetoken.googleapis.com"

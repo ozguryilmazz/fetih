@@ -336,7 +336,12 @@ class Handler(BaseHTTPRequestHandler):
             REFRESH[ref] = uid
             return self._send(200, {"idToken": tok, "refreshToken": ref, "localId": uid, "expiresIn": "3600"})
         if u.path.startswith("/v1/token"):
-            b = self._body() or {}
+            n = int(self.headers.get("Content-Length", 0) or 0)
+            raw = self.rfile.read(n).decode() if n else ""
+            if "x-www-form-urlencoded" in (self.headers.get("Content-Type") or ""):
+                b = {k: v[0] for k, v in parse_qs(raw).items()}
+            else:
+                b = json.loads(raw) if raw else {}
             uid = REFRESH.get(b.get("refresh_token"))
             if not uid:
                 return self._send(400, {"error": {"message": "INVALID_REFRESH_TOKEN"}})
