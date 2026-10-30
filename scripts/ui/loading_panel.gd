@@ -22,7 +22,9 @@ const MESSAGES := [
 	"Tarafsız köylüler ikna ediliyor",
 	"Sinyal güçlendiriliyor",
 ]
-const MESSAGE_SEC := 0.75
+## Her yazı ekranda bu kadar kalır (çocuklar da rahat okuyabilsin). Yükleme bundan
+## kısa sürerse sadece rastgele seçilen bir-iki yazı görünür; yükleme uzatılmaz.
+const MESSAGE_SEC := 2.2
 
 var _bar_fill: ColorRect
 var _bar_bg: Panel
@@ -80,9 +82,8 @@ func _init() -> void:
 	_msg.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(_msg)
 
-	_order = range(1, MESSAGES.size())
+	_order = range(MESSAGES.size())
 	_order.shuffle()
-	_order.push_front(0)  # her zaman "Evrene bağlandı" ile başla
 
 
 ## Çubuğun şu anki adımda ulaşabileceği en üst değer (0..1).
@@ -114,8 +115,11 @@ func _process(delta: float) -> void:
 	if _msg_timer <= 0.0 and not _order.is_empty():
 		_msg_timer = MESSAGE_SEC
 		_msg.text = String(MESSAGES[_order.pop_front()]) + "..."
+		# Yumuşakça belirsin
+		_msg.modulate.a = 0.0
+		_msg.create_tween().tween_property(_msg, "modulate:a", 1.0, 0.25)
 		if _order.is_empty():
-			_order = range(1, MESSAGES.size())
+			_order = range(MESSAGES.size())
 			_order.shuffle()
 
 	if _finishing and _value >= 0.999 and Time.get_ticks_msec() >= _min_until:
