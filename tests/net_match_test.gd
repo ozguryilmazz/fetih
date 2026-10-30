@@ -57,7 +57,8 @@ func _run() -> void:
 		await _wait(func(): return FileAccess.file_exists(dir + "/code"), 20)
 		mp._code_edit.text = FileAccess.get_file_as_string(dir + "/code")
 		mp._join()
-		_check(await _wait(func(): return mp._lobby.visible, 15), "lobiye girdi")
+		# Host hızlı başlatırsa client lobiyi görmeden doğrudan oyuna geçebilir.
+		_check(await _wait(func(): return _scene_name() == "Game" or (is_instance_valid(mp) and mp._lobby.visible), 20), "lobiye girdi")
 	_check(await _wait(func(): return _scene_name() == "Game", 30), "oyun ekranı açıldı")
 	await process_frame
 	var game: Node2D = current_scene

@@ -83,8 +83,7 @@ func _ready() -> void:
 	_layout()
 	_quest_gold_start = SaveData.quests_ready_total()
 	if online:
-		phase = "play"
-		_show_banner("Oyun başladı!")
+		_start_online_loading()
 	else:
 		_show_intro()
 
@@ -109,6 +108,22 @@ func _on_net_command(_slot: int, cmd: Dictionary) -> void:
 func _on_net_snapshot(snap: Dictionary) -> void:
 	if not finished:
 		state.apply_snapshot(snap)
+
+
+## Maç başında iki tarafta da kısa yükleme ekranı; bitince oyun birlikte başlar.
+func _start_online_loading() -> void:
+	phase = "loading"
+	var layer := CanvasLayer.new()
+	layer.layer = 20
+	add_child(layer)
+	var p := LoadingPanel.show_over(layer, "Savaş hazırlanıyor", 2.5)
+	p.set_target(0.9)
+	p.done.connect(func():
+		layer.queue_free()
+		_acc = 0.0
+		phase = "play"
+		_show_banner("Savaş başladı!"))
+	get_tree().create_timer(1.2).timeout.connect(p.finish)
 
 
 func _quest(id: String, n: float) -> void:

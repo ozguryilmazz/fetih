@@ -11,6 +11,8 @@ var _players_box: VBoxContainer
 var _start_btn: Button
 var _wait_label: Label
 var _lobby_started := 0
+var _loading: LoadingPanel
+var _pending_code := ""
 
 
 func _ready() -> void:
@@ -53,6 +55,7 @@ func _build_menu() -> void:
 	_menu.add_child(UIKit.label("Oda kur, çıkan 4 haneli kodu arkadaşına ver. En fazla 3 oyuncu. Kod 5 dakika geçerli.", 26, UIKit.MUTED))
 	_menu.add_child(UIKit.button("Oda Kur", func():
 		_status.add_theme_color_override("font_color", UIKit.MUTED)
+		_begin_loading("Oda kuruluyor")
 		Net.create_room(), 110))
 
 	_menu.add_child(UIKit.label("Arkadaşının odasına katıl:", 26, UIKit.MUTED))
@@ -106,7 +109,20 @@ func _process(_delta: float) -> void:
 
 
 func _on_status(t: String) -> void:
-	_status.text = t
+	_status.text = "" if _loading else t
+	# Gerçek adımlar çubuğun ilerleyebileceği sınırı belirler.
+	if _loading:
+		if t.begins_with("Sunucuya"):
+			_loading.set_target(0.35)
+		elif t != "":
+			_loading.set_target(0.75)
+
+
+func _begin_loading(title: String) -> void:
+	if _loading:
+		_loading.cancel()
+	_loading = LoadingPanel.show_over(self, title)
+	_loading.set_target(0.2)
 
 
 func _on_match_started(_setup: Dictionary, _slot: int) -> void:
@@ -126,10 +142,15 @@ func _on_code_changed(t: String) -> void:
 
 func _join() -> void:
 	_status.add_theme_color_override("font_color", UIKit.MUTED)
+	if _code_edit.text.length() == 4:
+		_begin_loading("Odaya bağlanılıyor")
 	Net.join_room(_code_edit.text)
 
 
 func _on_failed(msg: String) -> void:
+	if _loading:
+		_loading.cancel()
+		_loading = null
 	_status.text = msg
 	_status.add_theme_color_override("font_color", Color("#e57373"))
 	_menu.visible = true
@@ -137,6 +158,21 @@ func _on_failed(msg: String) -> void:
 
 
 func _on_room_ready(code: String) -> void:
+	# Yükleme çubuğu dolup kapandıktan sonra lobi açılır.
+	if _loading:
+		_pending_code = code
+		_loading.done.connect(_on_loading_done, CONNECT_ONE_SHOT)
+		_loading.finish()
+		return
+	_show_lobby(code)
+
+
+func _on_loading_done() -> void:
+	_loading = null
+	_show_lobby(_pending_code)
+
+
+func _show_lobby(code: String) -> void:
 	_menu.visible = false
 	_lobby.visible = true
 	_lobby_started = Time.get_ticks_msec()
