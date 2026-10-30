@@ -10,6 +10,7 @@ state.io tarzı, sürükle-bırak strateji oyunu. Godot 4.6, Android, 2D.
   - İlk hedefe değdikten sonra üzerinden geçtiğin her üs **hedef** olur.
   - Parmağını kaldırınca her kaynak askerini hedeflere **eşit böler** (100 asker, 2 hedef → 50 + 50).
   - Sadece kendi üslerinden geçip bırakırsan son üs hedef sayılır (takviye).
+  - Aradaki bir üs ancak parmak üstünde ~0,2 sn beklerse seçime eklenir (dolan halka gösterir); hızlı geçilen üsler eklenmez. Parmağın kalktığı üs her zaman hedeftir.
 - **Asker kolları:** askerler sıra sıra yürür, hedefe tek tek girer.
 - **Yol çarpışması:** rakip kollar yolda karşılaşınca durup birbirini eritir (15'e 15 → ikisi de yok olur). Kesişen yollarda vurulan kol ikiye bölünür.
 - **Efektler ve titreşim:** çarpışma kıvılcımı, isabet, ele geçirme dalgası, ekran sarsıntısı; titreşim Ayarlar'dan kapatılabilir.

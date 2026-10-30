@@ -77,6 +77,7 @@ func _run() -> void:
 	await process_frame
 	failed = (await _survival_check()) or failed
 	failed = (await _level_map_check()) or failed
+	failed = (await _pass_through_check()) or failed
 	print("SONUC: ", "HATA" if failed else "TAMAM")
 	quit(1 if failed else 0)
 
@@ -164,3 +165,58 @@ func _mouse(p: Vector2, pressed: bool) -> void:
 	e.global_position = p
 	e.pressed = pressed
 	root.push_input(e, true)
+
+
+## Hızlı geçilen aradaki üs hedef olmamalı; üstünde bekleyince olmalı.
+func _pass_through_check() -> bool:
+	root.get_node("Session").mode = "solo"
+	root.get_node("Session").level = 1
+	var bad := false
+	for dwell in [false, true]:
+		var game: Node2D = load("res://scenes/game.tscn").instantiate()
+		root.add_child(game)
+		for i in 3:
+			await process_frame
+		game._close_overlay()
+		game.bots.clear()
+		game.phase = "play"
+		await process_frame
+		var st: MatchState = game.state
+		var a: Dictionary = st.bases.filter(func(b): return b["owner"] == 0)[0]
+		var others: Array = st.bases.filter(func(b): return b["owner"] != 0)
+		var t: Dictionary = others[0]
+		var m: Dictionary = others[1]
+		a["troops"] = 40.0
+		a["pos"] = Vector2(360, 300)
+		m["pos"] = Vector2(360, 640)
+		t["pos"] = Vector2(360, 980)
+		for o in others.slice(2):
+			o["pos"] = Vector2(80 + (o["id"] % 3) * 20, 1150)
+		var xf: Transform2D = game.get_global_transform_with_canvas()
+		_touch(xf * a["pos"], true)
+		await process_frame
+		for i in range(1, 9):
+			var d := InputEventScreenDrag.new()
+			d.index = 0
+			d.position = xf * a["pos"].lerp(t["pos"], i / 8.0)
+			root.push_input(d, true)
+			await process_frame
+			if dwell and i == 4:
+				var t0 := Time.get_ticks_msec()
+				while Time.get_ticks_msec() - t0 < 300:
+					await process_frame
+		_touch(xf * t["pos"], false)
+		await process_frame
+		var targets: Array = st.groups.map(func(g): return g["to"])
+		targets.sort()
+		var expect: Array = [t["id"]]
+		if dwell:
+			expect = [m["id"], t["id"]]
+			expect.sort()
+		var ok := targets == expect
+		var what := "bekleyince aradaki üs de hedef oldu" if dwell else "hızlı geçişte aradaki üs hedef olmadı"
+		print(("  ok   " if ok else "  HATA ") + "%s (hedefler: %s)" % [what, targets])
+		bad = bad or not ok
+		game.queue_free()
+		await process_frame
+	return bad

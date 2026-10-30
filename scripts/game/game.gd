@@ -13,6 +13,9 @@ const HIT_PAD := 24.0
 ## Basılı tutma ile yükseltme menüsü açılması için süre (ms) ve izin verilen kayma (px).
 const LONG_PRESS_MS := 450
 const LONG_PRESS_SLOP := 18.0
+## Sürüklerken bir üs, parmak üstünde bu kadar (ms) kalırsa seçime eklenir.
+## Hızlı geçilen aradaki üsler eklenmez. Parmağın kalktığı üs her zaman hedeftir.
+const DWELL_MS := 180
 const SOLDIER_R := 5.2
 const MAX_PARTICLES := 400
 
@@ -32,6 +35,8 @@ var _press_base := -1
 var _press_pos := Vector2.ZERO
 var _press_ms := 0
 var _menu_base := -1
+var _hover_base := -1
+var _hover_ms := 0
 ## Maç başında hazır bekleyen görev ödülü (maç sonunda yeni ödül var mı diye).
 var _quest_gold_start := 0
 
@@ -114,6 +119,7 @@ func _process(delta: float) -> void:
 		_consume_events()
 		_update_hud()
 		_check_long_press()
+		_check_dwell()
 		_check_end()
 	if _banner_time > 0.0:
 		_banner_time -= delta
@@ -252,10 +258,15 @@ func _unhandled_input(event: InputEvent) -> void:
 					_dragging = true
 					_sources = [b]
 					_targets = []
+					_hover_base = -1
 					_vibrate(12, 0.3)
 		else:
 			_press_base = -1
 			if _dragging:
+				# Parmağın kalktığı üs, beklenmemiş olsa da hedef olur.
+				var rb := _base_at(p)
+				if rb >= 0:
+					_touch_base(rb)
 				_finish_drag()
 	elif event is InputEventScreenDrag and event.index == 0:
 		_finger = make_input_local(event).position
@@ -263,8 +274,17 @@ func _unhandled_input(event: InputEvent) -> void:
 			_press_base = -1
 		if _dragging:
 			var b := _base_at(_finger)
-			if b >= 0:
-				_touch_base(b)
+			if b != _hover_base:
+				_hover_base = b
+				_hover_ms = Time.get_ticks_msec()
+
+
+## Parmak bir üsün üstünde yeterince beklediyse o üsü seçime ekler.
+func _check_dwell() -> void:
+	if not _dragging or _hover_base < 0:
+		return
+	if Time.get_ticks_msec() - _hover_ms >= DWELL_MS:
+		_touch_base(_hover_base)
 
 
 ## Hayatta kalma: kendi üssüne kıpırdamadan basılı tutunca yükseltme menüsü açılır.
@@ -294,6 +314,7 @@ func _touch_base(b: int) -> void:
 
 func _finish_drag() -> void:
 	_dragging = false
+	_hover_base = -1
 	if _targets.is_empty() and _sources.size() >= 2:
 		_targets = [_sources.pop_back()]
 	if not _targets.is_empty():
@@ -416,6 +437,10 @@ func _draw_base(b: Dictionary) -> void:
 		draw_arc(c, r + 16.0, 0.0, TAU, 64, Color(0.55, 0.8, 1.0, 0.35 + 0.3 * pulse), 6.0, true)
 		draw_circle(c, r + 14.0, Color(0.55, 0.8, 1.0, 0.08))
 
+	if _dragging and id == _hover_base and not _sources.has(id) and not _targets.has(id):
+		# Bekleme göstergesi: halka dolunca üs seçime eklenir.
+		var k := clampf(float(Time.get_ticks_msec() - _hover_ms) / DWELL_MS, 0.0, 1.0)
+		draw_arc(c, r + 8.0, -PI / 2, -PI / 2 + TAU * k, 48, Color(1, 1, 1, 0.7), 4.0, true)
 	if _dragging and _sources.has(id):
 		draw_arc(c, r + 8.0, 0.0, TAU, 48, Color.WHITE, 5.0, true)
 	elif _dragging and _targets.has(id):
