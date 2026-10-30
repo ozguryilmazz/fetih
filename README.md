@@ -15,7 +15,14 @@ state.io tarzı, sürükle-bırak strateji oyunu. Godot 4.6, Android, 2D.
 - **Yol çarpışması:** rakip kollar yolda karşılaşınca durup birbirini eritir (15'e 15 → ikisi de yok olur). Kesişen yollarda vurulan kol ikiye bölünür.
 - **Efektler ve titreşim:** çarpışma kıvılcımı, isabet, ele geçirme dalgası, ekran sarsıntısı; titreşim Ayarlar'dan kapatılabilir.
 - **Solo mod (50 bölüm):** her maçta rastgele harita. Zorluk bantları: 1–10 Kolay-Orta, 11–20 Orta, 21–30 Orta-Zor, 31–40 Zor, 41–50 Çok Zor. 6. bölümden itibaren 2 bot.
-- **Boss bölümleri:** her 10. bölüm; tek ama güçlü rakip, taçlı kale üssü (büyük, hızlı üretir, dayanıklı), çift altın.
+- **Boss bölümleri:** her 10. bölüm; tek ama güçlü rakip, taçlı kale üssü (büyük, hızlı üretir, dayanıklı), çift altın. Her boss'un kodla çizilmiş resmi, girişte akan bir efsanesi ("Geç" ile atlanır) ve özel gücü var:
+  - 10 **Tepegöz:** 25 sn'de bir en kalabalık üssüne bakar, askerlerin %40'ı yok olur (2 sn önce göz belirir).
+  - 20 **Şahmeran:** yollarına zehir gölü bırakır, içinden geçen askerler erir; her göl 10 sn sonra kurur.
+  - 30 **Karakoncolos:** ara sıra 3 sn'lik karanlık; sadece kendi üslerinin yakını görünür.
+  - 40 **Zümrüdüanka:** kalesi ilk düştüğünde küllerinden doğar (15 askerle onda kalır), tek seferlik.
+  - 50 **Ejderha:** maç boyunca iki kez en kalabalık üssüne ateş püskürtür (önce gölgesi düşer).
+- **Hava:** 5, 15, 25, 35, 45. bölümler her oynayışta rastgele **gece** (sadece üslerinin yakını görünür) ya da **yağmur** (bütün askerler %30 yavaş, hedef süre uzar). Haritada bulut işaretiyle gösterilir.
+- **Maç özeti:** her maç sonunda üs sayısı grafiği + en büyük saldırı, en çok üs alan, yol savaşı ustası.
 - **Yıldızlar:** ★ kazan, ★ hedef sürede kazan, ★ en fazla 2 üs kaybet. Altın: 1★ 50, 2★ 75, 3★ 100 (rekor kırmayan tekrar oyunu %20).
 - **Bot zekâsı:** savunma (düşecek üsse takviye), net değer hesabı ve sabır, risk hesabı (boşalan üssün kaybedilmesi), arkadaki askerleri cepheye toplama. Beceri bölümle artar.
 - **Günlük ödül:** 7 günlük seri (50 → 300 altın); bir gün kaçırılırsa seri başa döner.
@@ -41,7 +48,7 @@ state.io tarzı, sürükle-bırak strateji oyunu. Godot 4.6, Android, 2D.
 - **Görseller:** kodla üretilen hafif dokulu zemin + kenar kararması; üslerde gölge, kalınlık, kubbe gölgelendirmesi ve parlama; harita tarzı bölüm seçimi (kıvrılan yol, bant renkleri, kilitli/açık/boss noktaları). Hiç resim dosyası yok, APK büyümedi.
 - **Güncelleme:** Ayarlar → Güncelleme: GitHub "son-surum" yayınındaki `version.json` (her derlemede üretilir) ile kendi sürümünü karşılaştırır; yeni sürüm varsa notları gösterir, "İndir ve Kur" APK'yı tarayıcıda indirir. Otomatik kontrol yok. Play Store sürümünde kapatılmalı (Play politikası).
 - **Kayıt:** her şey cihazda saklanır (`user://save.cfg`), hesap yok.
-- **Çok oyunculu (internet üzerinden, Firebase):** host oda kurar, 4 haneli kod (5 dk geçerli), en fazla 3 oyuncu, bot yok, mağaza güçlendirmeleri kapalı. Host maçı hesaplar, diğerleri komut yollar ve saniyede 5 durum paketi alır. Bir oyuncunun bağlantısı koparsa (9 sn kalp atışı yok) maç herkes için biter. Kazanana 100, diğerlerine 30 altın; görevlere sayılmaz.
+- **Çok oyunculu (internet üzerinden, Firebase):** host oda kurar, 4 haneli kod (5 dk geçerli), en fazla 3 oyuncu, bot yok, mağaza güçlendirmeleri kapalı. Host maçı hesaplar, diğerleri komut yollar ve saniyede 5 durum paketi alır. Bir oyuncunun bağlantısı koparsa (9 sn kalp atışı yok) maç herkes için biter. Kazanana 100, diğerlerine 30 altın; görevlere sayılmaz. Maç içinde 6 ifade (gülme, kızgın, şaşkın, ağlama, kalp, beyaz bayrak; 2 sn'de bir) gönderilir, gönderenin en kalabalık üssünün üstünde balon olarak çıkar. Maç sonunda herkes **Rövanş** derse aynı odada yeni haritayla yeni maç başlar; biri çıkarsa "Rakip ayrıldı" yazar.
 
 ## Çok oyunculu kurulum (Firebase)
 

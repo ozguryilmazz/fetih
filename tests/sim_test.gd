@@ -15,6 +15,7 @@ func _initialize() -> void:
 	_test_survival_rules()
 	_test_quest_counting()
 	_test_update_compare()
+	_test_bosses_and_weather()
 	_test_bot_matches()
 	print("SONUC: ", "HATA" if _failed else "TAMAM")
 	quit(1 if _failed else 0)
@@ -354,6 +355,101 @@ func _test_update_compare() -> void:
 	r = UpdateChecker.evaluate({"code": 18, "name": "0.1.18", "apk": "u"}, "0.1.18")
 	_check(r["ok"] and not r["newer"], "aynı sürüm: güncel")
 	_check(not UpdateChecker.evaluate(null, "0.1.18")["ok"], "bozuk dosya reddedildi")
+
+
+func _test_bosses_and_weather() -> void:
+	print("Boss'lar ve hava")
+	var kinds := {10: "tepegoz", 20: "sahmeran", 30: "karakoncolos", 40: "zumruduanka", 50: "ejderha"}
+	var pl := {"name": "P", "color": 1, "icon": 0, "upgrades": {}}
+	for lv in kinds:
+		var st := LevelSetup.create(lv, pl, 5)
+		_check(st["params"]["boss_kind"] == kinds[lv] and st["boss"] != null, "%d. bölüm boss'u: %s" % [lv, GameConfig.BOSS_INFO[kinds[lv]]["name"]])
+	_check(LevelSetup.create(11, pl, 5)["boss"] == null, "boss olmayan bölümde boss yeteneği yok")
+	var weather := {}
+	for lv in range(1, GameConfig.MAX_LEVEL + 1):
+		for sd in 6:
+			var w: String = LevelSetup.create(lv, pl, sd * 13 + lv)["params"]["weather"]
+			if w != "":
+				weather[lv] = weather.get(lv, {})
+				weather[lv][w] = true
+	_check(weather.keys() == [5, 15, 25, 35, 45], "hava sadece 5, 15, 25, 35, 45. bölümlerde (%s)" % [weather.keys()])
+	_check(weather.values().all(func(v): return v.size() == 2), "her hava bölümünde gece de yağmur da çıkabiliyor")
+
+	# Yağmur: askerler %30 yavaş
+	var s := MatchState.new()
+	s.players = [_player(0), _player(1)]
+	s.bases = [_base(0, Vector2(100, 100), 0, 10.0), _base(1, Vector2(600, 100), 1, 10.0)]
+	var normal := s.troop_speed(0)
+	s.speed_mult = GameConfig.RAIN_SPEED
+	_check(is_equal_approx(s.troop_speed(0), normal * 0.7), "yağmurda asker hızı %70")
+
+	# Zümrüdüanka: kale bir kez küllerinden doğar
+	s = MatchState.new()
+	s.players = [_player(0), _player(1)]
+	s.bases = [_base(0, Vector2(100, 400), 0, 60.0), _base(1, Vector2(500, 400), 1, 5.0)]
+	s.bases[1]["rebirth"] = true
+	_no_production(s)
+	var needed := s.troops_needed(s.bases[1], 0.0, 0)
+	_check(needed > 5.0 + GameConfig.REBIRTH_TROOPS - 0.1, "bot'lar doğuşu hesaba katıyor (gereken %d)" % int(needed))
+	s.apply_command({"type": "send", "owner": 0, "sources": [0], "targets": [1]})
+	var reborn := 0
+	while not s.groups.is_empty():
+		s.step(GameConfig.SIM_DT)
+		reborn += s.events.filter(func(e): return e["type"] == "rebirth").size()
+		s.events.clear()
+	_check(reborn == 1 and not s.bases[1].get("rebirth", false), "kale bir kez küllerinden doğdu")
+	s.bases[0]["troops"] = 60.0
+	s.bases[1]["troops"] = 1.0
+	s.apply_command({"type": "send", "owner": 0, "sources": [0], "targets": [1]})
+	_run(s, 30.0)
+	_check(s.bases[1]["owner"] == 0, "ikinci kez doğmuyor, kale alındı")
+
+	# Şahmeran: zehir askerleri eritir ve süresi dolunca kaybolur
+	s = MatchState.new()
+	s.players = [_player(0), _player(1)]
+	s.bases = [_base(0, Vector2(100, 400), 0, 30.0), _base(1, Vector2(600, 400), 1, 0.0)]
+	_no_production(s)
+	s.hazards.append({"kind": "poison", "pos": Vector2(350, 400), "r": GameConfig.POISON_RADIUS,
+		"until": GameConfig.POISON_DURATION, "owner": 1, "born": 0.0})
+	s.apply_command({"type": "send", "owner": 0, "sources": [0], "targets": [1]})
+	var sent: int = MatchState.group_count(s.groups[0])
+	var poisoned := 0
+	while not s.groups.is_empty():
+		s.step(GameConfig.SIM_DT)
+		poisoned += s.events.filter(func(e): return e["type"] == "poison_kill").size()
+		s.events.clear()
+	_check(poisoned > 0 and s.bases[1]["troops"] < sent, "zehirden geçen kol eridi (%d asker öldü)" % poisoned)
+	while s.time < GameConfig.POISON_DURATION + 0.5:
+		s.step(GameConfig.SIM_DT)
+	_check(s.hazards.is_empty(), "zehir %d sn sonra kurudu" % int(GameConfig.POISON_DURATION))
+
+	# Tepegöz / Ejderha / Karakoncolos yönetmenleri
+	for kind in ["tepegoz", "ejderha", "karakoncolos", "sahmeran"]:
+		s = MatchState.new()
+		s.players = [_player(0), _player(1)]
+		s.bases = [_base(0, Vector2(100, 400), 0, 100.0), _base(1, Vector2(600, 400), 1, 50.0), _base(2, Vector2(300, 900), 0, 40.0)]
+		_no_production(s)
+		var boss := BossDirector.new(kind, 3)
+		boss.setup(s)
+		var seen := {}
+		var hits := 0
+		while s.time < 140.0:
+			boss.update(s, GameConfig.SIM_DT)
+			s.step(GameConfig.SIM_DT)
+			for e in s.events:
+				seen[e["type"]] = seen.get(e["type"], 0) + 1
+			s.events.clear()
+		match kind:
+			"tepegoz":
+				_check(seen.get("gaze_warn", 0) >= 4 and seen.get("gaze", 0) == seen.get("gaze_warn", 0), "Tepegöz uyarıp bakıyor (%d kez)" % seen.get("gaze", 0))
+				_check(s.bases[0]["troops"] < 100.0 * 0.6 * 0.6 + 0.1, "Tepegöz en kalabalık üssü eritiyor")
+			"ejderha":
+				_check(seen.get("dragon_fire", 0) == GameConfig.DRAGON_ATTACKS, "Ejderha maç boyunca sadece %d kez ateş püskürtüyor" % GameConfig.DRAGON_ATTACKS)
+			"karakoncolos":
+				_check(seen.get("darkness", 0) >= 10, "Karakoncolos geceyi çağırıyor (%d kez)" % seen.get("darkness", 0))
+				_check(is_equal_approx(GameConfig.DARK_DURATION, 3.0), "karanlık 3 saniye")
+			"sahmeran":
+				_check(seen.get("poison_place", 0) >= 10 and s.hazards.size() <= 1, "Şahmeran zehir bırakıyor, eskiler kuruyor (aynı anda %d göl)" % s.hazards.size())
 
 
 func _test_bot_matches() -> void:

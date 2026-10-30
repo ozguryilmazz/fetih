@@ -67,6 +67,25 @@ var _shake_time := 0.0
 var _shake_power := 0.0
 var _soldier_tex: Texture2D
 
+# Boss ve hava
+var boss_dir: BossDirector
+var _warns: Array = []      # {base, kind ("gaze"/"dragon"), until}
+var _flames: Array = []     # {p, life, max, col, r} büyük alev/ışık patlaması
+var _rain: Array = []       # yağmur çizgileri (ekran koordinatı)
+var _bannered := {}         # olay türü -> bir kez gösterildi
+# Maç özeti
+var _history: Array = []    # [[zaman, [üs sayıları]]]
+var _next_hist := 0.0
+var _stats: Array = []      # oyuncu başına {biggest, captures, clash, kills}
+# Çok oyunculu ifadeler ve rövanş
+var _bubbles: Array = []    # {slot, e, life}
+var _emote_row: Control
+var _emote_btn: EmoteDraw.EmoteButton
+var _emote_ready_ms := 0
+var _restarting := false
+var _rematch_btn: Button
+var _rematch_label: Label
+
 
 func _ready() -> void:
 	_font = ThemeDB.fallback_font
@@ -95,6 +114,12 @@ func _setup_online() -> void:
 	bots = []
 	params = {"boss": false, "par": 0}
 	Net.match_ended.connect(_end_online)
+	Net.emote_received.connect(_show_emote)
+	Net.rematch_changed.connect(_on_rematch_changed)
+	Net.match_started.connect(func(_d: Dictionary, _s: int):
+		# Rövanş başladı: oyun ekranını yeni haritayla baştan aç.
+		_restarting = true
+		Session.go.call_deferred("game"))
 	if Net.is_host:
 		Net.command_received.connect(_on_net_command)
 	else:
@@ -139,6 +164,10 @@ func _setup_solo() -> void:
 	state = setup["state"]
 	bots = setup["bots"]
 	params = setup["params"]
+	boss_dir = setup["boss"]
+	if params.get("weather", "") == "rain":
+		for i in 90:
+			_rain.append(Vector2(randf() * 760.0 - 20.0, randf() * 1320.0 - 20.0))
 
 
 func _setup_survival() -> void:
@@ -166,6 +195,8 @@ func _process(delta: float) -> void:
 			_acc -= GameConfig.SIM_DT
 			if survival:
 				survival.update(state, GameConfig.SIM_DT)
+			if boss_dir:
+				boss_dir.update(state, GameConfig.SIM_DT)
 			for cmd in _pending_cmds:
 				state.apply_command(cmd)
 			_pending_cmds.clear()
@@ -173,6 +204,7 @@ func _process(delta: float) -> void:
 				for cmd in bot.update(state, GameConfig.SIM_DT):
 					state.apply_command(cmd)
 			state.step(GameConfig.SIM_DT)
+			_record_history()
 		if online and Net.is_host:
 			_snap_timer -= delta
 			if _snap_timer <= 0.0:
@@ -188,6 +220,7 @@ func _process(delta: float) -> void:
 		_banner.modulate.a = clampf(_banner_time / 0.4, 0.0, 1.0)
 	if phase == "play" or phase == "end":
 		_update_effects(delta)
+		_update_emotes(delta)
 	queue_redraw()
 
 
@@ -218,7 +251,10 @@ func _consume_events() -> void:
 				_burst(e["pos"], state.player_color(e["b"]).lightened(0.2), 1, 120.0, 0.45, 3.8)
 				if _rng.randf() < 0.3:
 					_rings.append({"p": e["pos"], "life": 0.18, "max": 0.18, "col": Color(1, 1, 0.9), "r0": 3.0, "r1": 18.0})
+			"send":
+				_stat(e["owner"], "biggest", e["n"], true)
 			"capture":
+				_stat(e["to"], "captures", 1)
 				var col := state.player_color(e["to"])
 				var r: float = GameConfig.BASE_TYPES["normal"]["radius"]
 				_rings.append({"p": e["pos"], "life": 0.5, "max": 0.5, "col": col, "r0": r * 0.8, "r1": r * 2.4})
@@ -233,9 +269,11 @@ func _consume_events() -> void:
 					_vibrate(90, 1.0)
 					_shake(9.0, 0.25)
 			"kill":
+				_stat(e["killer"], "kills", e["n"])
 				if e["killer"] == my_id:
 					_quest("kills", e["n"])
 			"clash_kill":
+				_stat(e["killer"], "clash", e["n"])
 				if e["killer"] == my_id:
 					_quest("clash_kills", e["n"])
 			"build":
@@ -259,7 +297,71 @@ func _consume_events() -> void:
 				_rings.append({"p": e["pos"], "life": 0.7, "max": 0.7, "col": state.player_color(e["owner"]), "r0": 60.0, "r1": 160.0})
 				_shake(5.0, 0.2)
 				_vibrate(60, 0.7)
+			"gaze_warn", "dragon_warn":
+				var k: String = "gaze" if e["type"] == "gaze_warn" else "dragon"
+				_warns.append({"base": e["base"], "kind": k, "until": state.time + BossDirector.WARN})
+				_show_banner("Tepegöz sana bakıyor!" if k == "gaze" else "Ejderha geliyor!")
+				_vibrate(40, 0.4)
+			"gaze":
+				_warns = _warns.filter(func(w): return w["kind"] != "gaze")
+				_flames.append({"p": e["pos"], "life": 0.8, "max": 0.8, "col": Color("#ff5252"), "r": 120.0})
+				_burst(e["pos"], Color("#ff8a80"), 24, 240.0, 0.7, 4.5)
+				_shake(8.0, 0.3)
+				_vibrate(120, 0.9)
+			"dragon_fire":
+				_warns = _warns.filter(func(w): return w["kind"] != "dragon")
+				_flames.append({"p": e["pos"], "life": 1.2, "max": 1.2, "col": Color("#ff9f1c"), "r": 170.0})
+				_burst(e["pos"], Color("#ff6d00"), 40, 300.0, 0.9, 6.0)
+				_burst(e["pos"], Color("#ffd166"), 24, 200.0, 0.7, 4.0)
+				_show_banner("Ejderha ateş püskürttü!")
+				_shake(14.0, 0.5)
+				_vibrate(220, 1.0)
+			"poison_place":
+				_rings.append({"p": e["pos"], "life": 0.6, "max": 0.6, "col": Color("#7dff8a"), "r0": 10.0, "r1": GameConfig.POISON_RADIUS})
+				if not _bannered.has("poison"):
+					_bannered["poison"] = true
+					_show_banner("Şahmeran yola zehir bıraktı!")
+			"poison_kill":
+				if _rng.randf() < 0.5:
+					_burst(e["pos"], Color("#7dff8a"), 2, 60.0, 0.4, 3.0)
+			"darkness":
+				_show_banner("Karakoncolos geceyi çağırdı!")
+				_vibrate(50, 0.5)
+			"rebirth":
+				_flames.append({"p": e["pos"], "life": 1.4, "max": 1.4, "col": Color("#19c39a"), "r": 160.0})
+				_rings.append({"p": e["pos"], "life": 1.0, "max": 1.0, "col": Color("#ffd166"), "r0": 40.0, "r1": 220.0})
+				_burst(e["pos"], Color("#ff9f1c"), 36, 260.0, 1.0, 5.5)
+				_burst(e["pos"], Color("#19c39a"), 24, 200.0, 1.0, 5.0)
+				_pop[e["base"]] = 0.35
+				_show_banner("Zümrüdüanka küllerinden doğdu!")
+				_shake(10.0, 0.4)
+				_vibrate(150, 0.9)
 	state.events.clear()
+
+
+func _stat(owner: int, key: String, n: float, is_max := false) -> void:
+	if owner < 0:
+		return
+	while _stats.size() <= owner:
+		_stats.append({"biggest": 0.0, "captures": 0.0, "clash": 0.0, "kills": 0.0})
+	if is_max:
+		_stats[owner][key] = maxf(_stats[owner][key], n)
+	else:
+		_stats[owner][key] += n
+
+
+## Oyuncuların üs sayısını düzenli kaydeder (maç sonu grafiği).
+func _record_history() -> void:
+	if state.time < _next_hist:
+		return
+	_next_hist = state.time + (1.0 if state.time < 120.0 else 2.0)
+	var counts: Array = []
+	for p in state.players:
+		counts.append(0)
+	for b in state.bases:
+		if b["owner"] >= 0 and b["owner"] < counts.size():
+			counts[b["owner"]] += 1
+	_history.append([state.time, counts])
 
 
 func _burst(p: Vector2, col: Color, n: int, speed: float, life: float, size: float) -> void:
@@ -291,6 +393,15 @@ func _update_effects(delta: float) -> void:
 	for r in _rings:
 		r["life"] -= delta
 	_rings = _rings.filter(func(r): return r["life"] > 0.0)
+	for f in _flames:
+		f["life"] -= delta
+	_flames = _flames.filter(func(f): return f["life"] > 0.0)
+	_warns = _warns.filter(func(w): return w["until"] > state.time - 0.1)
+	for i in _rain.size():
+		var r: Vector2 = _rain[i] + Vector2(-140.0, 900.0) * delta
+		if r.y > 1300.0:
+			r = Vector2(randf() * 900.0, -30.0)
+		_rain[i] = r
 	for dict in [_pop, _jolt]:
 		for k in dict.keys():
 			dict[k] -= delta
@@ -408,6 +519,14 @@ func _draw() -> void:
 	var full := Rect2(-position - Vector2(20, 20), vis + Vector2(40, 40))
 	draw_texture_rect(Art.ground(), full, true)
 	draw_texture_rect(Art.vignette(), full, false)
+	var fog := _fog_level()
+	if fog > 0.0:
+		draw_rect(full, Color(0.02, 0.03, 0.08, fog))
+		for b in state.bases:
+			if b["owner"] == my_id:
+				for k in 3:
+					draw_circle(b["pos"], GameConfig.NIGHT_VISION * (0.55 + k * 0.22), Color(1.0, 0.93, 0.7, 0.035))
+	_draw_hazards()
 
 	if _dragging:
 		for s in _sources:
@@ -423,7 +542,7 @@ func _draw() -> void:
 			_dashed(state.bases[_targets.back()]["pos"], _finger, Color(1, 1, 1, 0.35))
 
 	for g in state.groups:
-		_draw_column(g)
+		_draw_column(g, fog > 0.0)
 
 	for r in _rings:
 		var k: float = 1.0 - r["life"] / r["max"]
@@ -432,16 +551,106 @@ func _draw() -> void:
 		draw_arc(r["p"], lerpf(r["r0"], r["r1"], k), 0.0, TAU, 56, col, lerpf(10.0, 2.0, k), true)
 
 	for b in state.bases:
-		_draw_base(b)
+		if fog > 0.0 and not _visible(b["pos"]):
+			_draw_hidden_base(b)
+		else:
+			_draw_base(b)
+	_draw_warns()
+	_draw_bubbles()
+
+	for f in _flames:
+		var k: float = 1.0 - f["life"] / f["max"]
+		var col: Color = f["col"]
+		for j in 3:
+			col.a = (1.0 - k) * (0.35 - j * 0.1)
+			draw_circle(f["p"], f["r"] * (0.4 + k * 0.6) * (1.0 - j * 0.25), col)
 
 	for p in _particles:
 		var col: Color = p["col"]
 		col.a = clampf(p["life"] / p["max"], 0.0, 1.0)
 		draw_circle(p["p"], p["r"] * (0.5 + 0.5 * col.a), col)
 
+	if not _rain.is_empty():
+		var off := -position
+		for r in _rain:
+			draw_line(off + r, off + r + Vector2(-7, 44), Color(0.75, 0.85, 1.0, 0.32), 2.0)
+
+
+## 0 = açık; gece ve Karakoncolos karanlığında haritanın kararma miktarı.
+func _fog_level() -> float:
+	if state.time < state.dark_until:
+		return 0.72
+	if params.get("weather", "") == "night":
+		return 0.55
+	return 0.0
+
+
+## Gece/karanlıkta bir nokta, kendi üslerinden birinin görüş mesafesinde mi?
+func _visible(p: Vector2) -> bool:
+	for b in state.bases:
+		if b["owner"] == my_id and p.distance_to(b["pos"]) <= GameConfig.NIGHT_VISION:
+			return true
+	return false
+
+
+## Karanlıkta görünmeyen üs: sadece belli belirsiz bir gölge (sahibi ve askeri gizli).
+func _draw_hidden_base(b: Dictionary) -> void:
+	var r: float = state.base_type(b)["radius"]
+	draw_circle(b["pos"], r, Color(0.5, 0.55, 0.7, 0.10))
+	draw_arc(b["pos"], r, 0.0, TAU, 40, Color(0.7, 0.75, 0.9, 0.22), 2.0, true)
+	_text_centered("?", b["pos"], 28, Color(1, 1, 1, 0.25))
+
+
+## Şahmeran'ın zehir gölleri: zamanla küçülüp solar.
+func _draw_hazards() -> void:
+	var t := Time.get_ticks_msec() / 1000.0
+	for h in state.hazards:
+		var left: float = h["until"] - state.time
+		var age: float = state.time - h["born"]
+		var a := clampf(left / 2.0, 0.0, 1.0) * clampf(age / 0.4, 0.0, 1.0)
+		var r: float = h["r"] * (0.75 + 0.25 * clampf(left / 2.0, 0.0, 1.0))
+		var c: Vector2 = h["pos"]
+		draw_circle(c, r, Color(0.2, 0.75, 0.25, 0.30 * a))
+		draw_circle(c, r * 0.7, Color(0.35, 0.95, 0.35, 0.25 * a))
+		draw_arc(c, r, 0.0, TAU, 40, Color(0.5, 1.0, 0.5, 0.55 * a), 3.0, true)
+		for k in 5:
+			var ph := fmod(t * 0.9 + k * 0.37 + h["born"], 1.0)
+			var bp := c + Vector2(cos(k * 2.4 + h["born"]), sin(k * 1.7 + h["born"])) * r * 0.55
+			draw_arc(bp, 3.0 + ph * 6.0, 0.0, TAU, 12, Color(0.75, 1.0, 0.7, (1.0 - ph) * 0.7 * a), 2.0, true)
+
+
+## Tepegöz'ün gözü / Ejderha'nın gölgesi: vuruştan önceki uyarı.
+func _draw_warns() -> void:
+	var t := Time.get_ticks_msec() / 1000.0
+	for w in _warns:
+		var b: Dictionary = state.bases[w["base"]]
+		var c: Vector2 = b["pos"]
+		var r: float = state.base_type(b)["radius"]
+		var k := clampf(1.0 - (w["until"] - state.time) / BossDirector.WARN, 0.0, 1.0)
+		if w["kind"] == "gaze":
+			var pulse := 0.5 + 0.5 * sin(t * 14.0)
+			draw_arc(c, r + 14.0 + pulse * 6.0, 0.0, TAU, 56, Color(1.0, 0.25, 0.25, 0.5 + 0.4 * k), 5.0, true)
+			var eye := c + Vector2(0, -r - 46.0)
+			var pts := PackedVector2Array()
+			for i in 24:
+				var a := TAU * i / 24.0
+				pts.append(eye + Vector2(cos(a) * 30.0, sin(a) * 18.0 * (0.4 + 0.6 * k)))
+			draw_colored_polygon(pts, Color("#fff8ec"))
+			draw_circle(eye, 11.0 * (0.4 + 0.6 * k), Color("#c0392b"))
+			draw_circle(eye, 5.0 * (0.4 + 0.6 * k), Color("#1a0f0a"))
+		else:
+			# Ejderha gölgesi yaklaşır ve büyür
+			var sc := lerpf(0.4, 1.3, k)
+			var sp := c + Vector2(lerpf(-260.0, 0.0, k), lerpf(-160.0, 0.0, k))
+			var shadow := Color(0, 0, 0, 0.25 + 0.25 * k)
+			var wing := PackedVector2Array([sp + Vector2(-90, -10) * sc, sp + Vector2(-20, -24) * sc, sp + Vector2(0, -50) * sc,
+				sp + Vector2(20, -24) * sc, sp + Vector2(90, -10) * sc, sp + Vector2(20, 6) * sc, sp + Vector2(0, 40) * sc, sp + Vector2(-20, 6) * sc])
+			draw_colored_polygon(wing, shadow)
+			draw_arc(c, r + 14.0, 0.0, TAU, 56, Color(1.0, 0.6, 0.1, 0.4 + 0.5 * k), 5.0, true)
+
 
 ## Asker kolunu sıra sıra çizer. Henüz üssün içinde olan askerler görünmez.
-func _draw_column(g: Dictionary) -> void:
+func _draw_column(g: Dictionary, fogged := false) -> void:
 	var a: Vector2 = state.bases[g["from"]]["pos"]
 	var b: Vector2 = state.bases[g["to"]]["pos"]
 	var dir := (b - a).normalized()
@@ -460,6 +669,8 @@ func _draw_column(g: Dictionary) -> void:
 		var lane_off := (i % lanes - (lanes - 1) * 0.5) * MatchState.LANE_SPACING
 		lane_off += sin(bob + row * 1.3) * 0.9
 		var pos := a + dir * along + perp * lane_off
+		if fogged and g["owner"] != my_id and not _visible(pos):
+			continue
 		draw_texture_rect(_soldier_tex, Rect2(pos - tex_size / 2.0, tex_size), false, col)
 
 
@@ -495,6 +706,8 @@ func _draw_base(b: Dictionary) -> void:
 		_draw_barracks(c, r, col, b.get("level", 1))
 	elif kind == "mine":
 		_draw_mine(c, r, b.get("level", 1))
+	elif kind == "fortress" and owner == 1 and params.get("boss_kind", "") != "":
+		BossArt.draw(self, params["boss_kind"], c + Vector2(0, -2), r * 0.8, Time.get_ticks_msec() / 1000.0)
 	elif owner != GameConfig.NEUTRAL:
 		IconDraw.draw_icon(self, state.players[owner]["icon"], c, r * 0.6, Color(1, 1, 1, 0.22))
 	if b.get("shielded", false):
@@ -515,7 +728,13 @@ func _draw_base(b: Dictionary) -> void:
 		# Maden: normal + 2 güçlü maden askeri (altın renkte).
 		_text_centered(str(int(b["troops"] + b.get("elite", 0.0))), c, 30, Color("#ffe082"))
 	else:
-		_text_centered(str(int(b["troops"])), c, 30, Color.WHITE)
+		var tc := c
+		if kind == "fortress" and owner == 1 and params.get("boss_kind", "") != "":
+			tc = c + Vector2(0, r + 26.0)  # sayı resmin altında
+		_text_centered(str(int(b["troops"])), tc, 30, Color.WHITE)
+	if b.get("rebirth", false):
+		var fl := 0.5 + 0.5 * sin(Time.get_ticks_msec() / 260.0)
+		draw_arc(c, r + 22.0, 0.0, TAU, 56, Color(0.1, 0.76, 0.6, 0.25 + 0.25 * fl), 4.0, true)
 
 
 ## Dolu üs (üretim durdu): çevresinde nabız gibi atan parlama.
@@ -624,12 +843,20 @@ func _build_hud() -> void:
 	bar.add_child(info)
 	var title := "Bölüm %d" % Session.level
 	if params["boss"]:
-		title += "  ·  BOSS"
+		title += "  ·  " + GameConfig.BOSS_INFO[params["boss_kind"]]["name"]
+	match params.get("weather", ""):
+		"night":
+			title += "  ·  Gece"
+		"rain":
+			title += "  ·  Yağmur"
 	if survival:
 		title = "Hayatta Kalma"
 	if online:
 		title = "Çok Oyunculu  ·  Oda %s" % Net.code
-	info.add_child(UIKit.label(title, 32))
+	var tl := UIKit.label(title, 32 if title.length() < 22 else 26)
+	tl.autowrap_mode = TextServer.AUTOWRAP_OFF
+	tl.clip_text = true
+	info.add_child(tl)
 	_loss_label = UIKit.label("", 22, UIKit.MUTED)
 	info.add_child(_loss_label)
 
@@ -646,6 +873,8 @@ func _build_hud() -> void:
 	_banner.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_banner.modulate.a = 0.0
 	root.add_child(_banner)
+	if online:
+		_build_emote_ui(root)
 	_update_hud()
 
 
@@ -841,15 +1070,27 @@ func _close_build_menu() -> void:
 
 # ---------------------------------------------------------------- giriş / duraklat panoları
 
-func _show_intro() -> void:
+func _show_intro(skip_legend := false) -> void:
 	phase = "intro"
 	if survival:
 		_show_survival_intro()
 		return
+	if params["boss"] and not skip_legend:
+		_show_legend()
+		return
 	var box := _open_overlay()
 	_add_title(box, "Bölüm %d" % Session.level, 54, UIKit.TEXT)
 	if params["boss"]:
-		_add_title(box, "BOSS: %s" % state.players[1]["name"], 34, Color("#ff8a80"))
+		var info: Dictionary = GameConfig.BOSS_INFO[params["boss_kind"]]
+		_add_title(box, "BOSS: %s" % info["name"], 34, Color("#ff8a80"))
+		_add_title(box, info["power"], 22, UIKit.MUTED)
+	match params.get("weather", ""):
+		"night":
+			_add_title(box, "Gece", 34, Color("#9fb4ff"))
+			_add_title(box, "Karanlıkta sadece kendi üslerinin yakınını görebilirsin.", 22, UIKit.MUTED)
+		"rain":
+			_add_title(box, "Yağmur", 34, Color("#9fd3ff"))
+			_add_title(box, "Çamurlu yollarda bütün askerler %%%d daha yavaş yürür." % int(round((1.0 - GameConfig.RAIN_SPEED) * 100)), 22, UIKit.MUTED)
 	_add_title(box, GameConfig.band_name(Session.level), 26, UIKit.MUTED)
 	var best := SaveData.best_stars(Session.level)
 	if best > 0:
@@ -863,6 +1104,31 @@ func _show_intro() -> void:
 		_close_overlay()
 		phase = "play", 100))
 	box.add_child(UIKit.button("Geri", func(): Session.go("level_select"), 80))
+
+
+## Boss bölümü girişi: yaratığın resmi ve efsanesi (yazı akarak gelir, "Geç" ile atlanır).
+func _show_legend() -> void:
+	var info: Dictionary = GameConfig.BOSS_INFO[params["boss_kind"]]
+	var box := _open_overlay(0.82)
+	var portrait := BossArt.Portrait.new()
+	portrait.kind = params["boss_kind"]
+	portrait.custom_minimum_size = Vector2(0, 320)
+	box.add_child(portrait)
+	_add_title(box, info["name"], 54, BossArt.color(params["boss_kind"]).lightened(0.3))
+	var story := UIKit.label(info["legend"], 26, UIKit.TEXT)
+	story.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	story.visible_ratio = 0.0
+	box.add_child(story)
+	var power := UIKit.label("Gücü: " + info["power"], 23, UIKit.ACCENT)
+	power.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	power.modulate.a = 0.0
+	box.add_child(power)
+	var btn := UIKit.button("Geç", func(): _show_intro(true), 96)
+	box.add_child(btn)
+	var tw := story.create_tween()  # pano kapanınca tween de durur
+	tw.tween_property(story, "visible_ratio", 1.0, info["legend"].length() / 38.0)
+	tw.tween_property(power, "modulate:a", 1.0, 0.5)
+	tw.tween_callback(func(): btn.text = "Devam")
 
 
 func _pause() -> void:
@@ -939,8 +1205,8 @@ func _show_end_panel(won: bool, stars: int, gold: int, prev: int) -> void:
 	sr.count = stars
 	sr.custom_minimum_size = Vector2(0, 84)
 	box.add_child(sr)
-	_add_title(box, "Süre %s" % _fmt_time(state.time), 26, UIKit.MUTED)
 	_add_goals(box, _goals(won))
+	_add_summary(box)
 	if won:
 		var note := ""
 		if stars <= prev:
@@ -1002,6 +1268,7 @@ func _show_survival_end(won: bool, gold: int, record: bool) -> void:
 		_add_title(box, "Rakip kalesini ele geçirdin.", 28, UIKit.TEXT)
 	_add_title(box, "Dayandığın süre: %s" % _fmt_time(state.time), 34, UIKit.TEXT)
 	_add_title(box, "Atlatılan dalga: %d" % survival.wave, 28, UIKit.MUTED)
+	_add_summary(box, false)
 	if record:
 		_add_title(box, "Yeni rekor!", 34, UIKit.ACCENT)
 	else:
@@ -1010,6 +1277,45 @@ func _show_survival_end(won: bool, gold: int, record: bool) -> void:
 	_add_quest_note(box)
 	box.add_child(UIKit.button("Tekrar Oyna", func(): Session.go("game"), 100))
 	box.add_child(UIKit.button("Ana Menü", func(): Session.go("main_menu")))
+
+
+## Maç özeti: üs sayısı grafiği + öne çıkanlar (en büyük saldırı, en çok fetih, yol savaşı).
+func _add_summary(box: VBoxContainer, with_time := true) -> void:
+	_record_history()
+	var counts: Array = []
+	for p in state.players:
+		counts.append(state.bases.filter(func(b): return b["owner"] == p["id"]).size())
+	_history.append([state.time, counts])
+	var head := "Maç özeti"
+	if with_time:
+		head += "  ·  süre %s" % _fmt_time(state.time)
+	box.add_child(UIKit.label(head, 24, UIKit.MUTED))
+	var chart := MatchSummary.new()
+	chart.history = _history
+	for p in state.players:
+		chart.colors.append(state.player_color(p["id"]))
+	chart.custom_minimum_size = Vector2(0, 170)
+	box.add_child(chart)
+	var lines: Array = []
+	for item in [["biggest", "En büyük saldırı", "asker"], ["captures", "En çok üs alan", "üs"], ["clash", "Yol savaşı ustası", "asker"]]:
+		var best := -1
+		var val := 0.0
+		for i in _stats.size():
+			if i < state.players.size() and _stats[i][item[0]] > val:
+				val = _stats[i][item[0]]
+				best = i
+		if best >= 0:
+			lines.append("%s: [color=#%s]%s[/color] (%d %s)" % [item[1], state.player_color(best).lightened(0.25).to_html(false), state.players[best]["name"], int(val), item[2]])
+	if not lines.is_empty():
+		var rt := RichTextLabel.new()
+		rt.bbcode_enabled = true
+		rt.fit_content = true
+		rt.scroll_active = false
+		rt.add_theme_font_size_override("normal_font_size", 22)
+		rt.add_theme_color_override("default_color", UIKit.TEXT)
+		rt.text = "\n".join(lines)
+		rt.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		box.add_child(rt)
 
 
 ## Maçta yeni görev ödülü hazır olduysa bitiş panelinde göster.
@@ -1022,11 +1328,116 @@ func _add_quest_note(box: VBoxContainer) -> void:
 func _exit_tree() -> void:
 	# Maç yarıda bırakılsa da görev ilerlemesi kaybolmasın.
 	SaveData.save()
-	if online:
+	if online and not _restarting:
 		Net.leave()
 
 
 # ---------------------------------------------------------------- çok oyunculu
+
+const EMOTE_COOLDOWN_MS := 2000
+const BUBBLE_TIME := 2.5
+
+
+func _build_emote_ui(root: Control) -> void:
+	_emote_btn = EmoteDraw.EmoteButton.new()
+	_emote_btn.emote = 0
+	_emote_btn.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	_emote_btn.offset_left = -116
+	_emote_btn.offset_top = -116
+	_emote_btn.offset_right = -24
+	_emote_btn.offset_bottom = -24
+	_emote_btn.pressed.connect(func(): _emote_row.visible = not _emote_row.visible)
+	root.add_child(_emote_btn)
+	_emote_row = HBoxContainer.new()
+	_emote_row.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	_emote_row.offset_left = 24
+	_emote_row.offset_right = -24
+	_emote_row.offset_top = -224
+	_emote_row.offset_bottom = -132
+	_emote_row.alignment = BoxContainer.ALIGNMENT_END
+	_emote_row.add_theme_constant_override("separation", 10)
+	_emote_row.visible = false
+	root.add_child(_emote_row)
+	for i in EmoteDraw.COUNT:
+		var b := EmoteDraw.EmoteButton.new()
+		b.emote = i
+		b.custom_minimum_size = Vector2(98, 92)
+		var idx := i
+		b.pressed.connect(func(): _send_emote(idx))
+		_emote_row.add_child(b)
+
+
+func _send_emote(e: int) -> void:
+	_emote_row.visible = false
+	if Time.get_ticks_msec() < _emote_ready_ms or finished:
+		return
+	_emote_ready_ms = Time.get_ticks_msec() + EMOTE_COOLDOWN_MS
+	Net.send_emote(e)
+	_show_emote(my_id, e)
+
+
+func _show_emote(slot: int, e: int) -> void:
+	_bubbles = _bubbles.filter(func(b): return b["slot"] != slot)
+	_bubbles.append({"slot": slot, "e": e, "life": BUBBLE_TIME})
+	if slot != my_id:
+		_vibrate(15, 0.3)
+
+
+func _update_emotes(delta: float) -> void:
+	for b in _bubbles:
+		b["life"] -= delta
+	_bubbles = _bubbles.filter(func(b): return b["life"] > 0.0)
+	if _emote_btn:
+		var d := Time.get_ticks_msec() < _emote_ready_ms
+		if d != _emote_btn.dim:
+			_emote_btn.dim = d
+			_emote_btn.queue_redraw()
+
+
+## İfade balonu: gönderenin en kalabalık üssünün üstünde (üssü yoksa ekranın üstünde).
+func _draw_bubbles() -> void:
+	for bb in _bubbles:
+		var best := -1
+		var most := -1.0
+		for b in state.bases:
+			if b["owner"] == bb["slot"] and b["troops"] > most:
+				most = b["troops"]
+				best = b["id"]
+		var anchor := Vector2(GameConfig.MAP_SIZE.x / 2.0, 150.0)
+		if best >= 0:
+			anchor = state.bases[best]["pos"] + Vector2(0, -float(state.base_type(state.bases[best])["radius"]) - 52.0)
+		var age: float = BUBBLE_TIME - bb["life"]
+		var sc := minf(1.0, age / 0.15) * (1.0 + 0.15 * maxf(0.0, 1.0 - age / 0.3))
+		var a := clampf(bb["life"] / 0.4, 0.0, 1.0)
+		anchor.y = maxf(anchor.y, 60.0)
+		var col := state.player_color(bb["slot"])
+		var r := 40.0 * sc
+		draw_colored_polygon(PackedVector2Array([anchor + Vector2(-12, r * 0.7), anchor + Vector2(12, r * 0.7), anchor + Vector2(0, r + 18.0)]), Color(1, 1, 1, 0.95 * a))
+		draw_circle(anchor, r + 4.0, Color(col.r, col.g, col.b, a))
+		draw_circle(anchor, r, Color(1, 1, 1, 0.95 * a))
+		if a > 0.05:
+			EmoteDraw.draw(self, bb["e"], anchor, r * 0.62)
+
+
+func _on_rematch_changed(info: Dictionary) -> void:
+	if not _rematch_label:
+		return
+	if info["gone"]:
+		_rematch_label.text = "Rakip ayrıldı, rövanş yok."
+		_rematch_label.add_theme_color_override("font_color", UIKit.MUTED)
+		_rematch_btn.disabled = true
+		return
+	var votes: Array = info["votes"]
+	_rematch_label.text = "Rövanş: %d / %d oyuncu hazır" % [votes.size(), info["total"]]
+	if votes.has(my_id):
+		_rematch_btn.disabled = true
+		_rematch_btn.text = "Rövanş istendi"
+	if Net.is_host and votes.size() >= int(info["total"]):
+		_rematch_label.text = "Yeni harita kuruluyor..."
+		var players: Array = []
+		for p in state.players:
+			players.append(MatchState.make_player(p["id"], p["name"], p["color"], p["icon"], false, {}))
+		Net.start_rematch(MatchState.create(randi(), players, 8 + 3 * players.size(), 6, 16))
 
 ## Oyun durmaz (ortak maç); sadece çıkış seçeneği sunar.
 func _online_menu() -> void:
@@ -1049,6 +1460,9 @@ func _end_online(info: Dictionary) -> void:
 	phase = "end"
 	_dragging = false
 	_close_overlay()
+	if _emote_btn:
+		_emote_btn.visible = false
+		_emote_row.visible = false
 	var reason: String = info.get("reason", "")
 	var title := "Oyun Bitti"
 	var sub := ""
@@ -1079,12 +1493,19 @@ func _end_online(info: Dictionary) -> void:
 	_add_title(box, title, 56, col)
 	if sub != "":
 		_add_title(box, sub, 28, UIKit.TEXT)
-	_add_title(box, "Süre %s" % _fmt_time(state.time), 26, UIKit.MUTED)
 	if gold > 0:
 		_add_title(box, "+%d altın" % gold, 36, UIKit.ACCENT)
+	_add_summary(box)
+	if reason == "win":
+		_rematch_label = UIKit.label("Rövanş ister misin?", 24, UIKit.MUTED)
+		_rematch_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		box.add_child(_rematch_label)
+		_rematch_btn = UIKit.button("Rövanş", func(): Net.vote_rematch(), 100)
+		box.add_child(_rematch_btn)
+		_on_rematch_changed.call_deferred(Net.rematch_info())
 	box.add_child(UIKit.button("Çok Oyunculu", func():
 		Net.leave()
-		Session.go("multiplayer"), 100))
+		Session.go("multiplayer"), 84 if reason == "win" else 100))
 	box.add_child(UIKit.button("Ana Menü", func():
 		Net.leave()
 		Session.go("main_menu")))

@@ -30,7 +30,7 @@ func _ready() -> void:
 
 	box.add_child(UIKit.spacer())
 	var level := SaveData.unlocked_level
-	var play_text := "Solo Oyna  (Bölüm %d%s)" % [level, " · BOSS" if GameConfig.is_boss(level) else ""]
+	var play_text := "Solo Oyna  (Bölüm %d%s)" % [level, (" · " + GameConfig.BOSS_INFO[GameConfig.boss_kind(level)]["name"]) if GameConfig.is_boss(level) else ""]
 	box.add_child(UIKit.button(play_text, func():
 		Session.mode = "solo"
 		Session.level = SaveData.unlocked_level

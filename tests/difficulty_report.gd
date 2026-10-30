@@ -71,7 +71,10 @@ static func play(level: int, player_skill: float, ups: Dictionary, seed_val: int
 	var bots: Array = setup["bots"]
 	bots.append(BotAI.new(0, player_skill, seed_val + 1))
 	var lost := 0
+	var boss: BossDirector = setup["boss"]
 	while s.time < 600.0:
+		if boss:
+			boss.update(s, GameConfig.SIM_DT)
 		for b in bots:
 			for c in b.update(s, GameConfig.SIM_DT):
 				s.apply_command(c)

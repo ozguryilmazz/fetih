@@ -4,10 +4,8 @@ extends RefCounted
 ## Hem oyun ekranı hem zorluk simülasyonu bunu kullanır, böylece
 ## test edilen zorluk ile oynanan zorluk birebir aynıdır.
 
-const BOSS_NAMES := ["Demir Pençe", "Kızıl Hükümdar", "Gölge Komutan", "Taş Dev", "Fırtına Kralı"]
-
-
-## player: {name, color, icon, upgrades}. Dönen: {state, bots, params}
+## player: {name, color, icon, upgrades}. Dönen: {state, bots, params, boss}
+## params["boss_kind"]: tepegoz/sahmeran/... ; params["weather"]: "", "night", "rain"
 static func create(level: int, player: Dictionary, seed_val: int) -> Dictionary:
 	var params := GameConfig.level_params(level)
 	var rng := RandomNumberGenerator.new()
@@ -26,21 +24,36 @@ static func create(level: int, player: Dictionary, seed_val: int) -> Dictionary:
 		used_colors.append(ci)
 		var bname := "Bot %d" % (i + 1)
 		if params["boss"]:
-			@warning_ignore("integer_division")
-			bname = BOSS_NAMES[(level / 10 - 1) % BOSS_NAMES.size()]
+			bname = GameConfig.BOSS_INFO[GameConfig.boss_kind(level)]["name"]
 		var bp := MatchState.make_player(i + 1, bname, ci, rng.randi() % GameConfig.ICON_NAMES.size(), true, bot_upgrades)
 		bp["prod"] *= params["bot_prod_bonus"]
 		players.append(bp)
 
 	var state := MatchState.create(rng.randi(), players, params["bases"], params["neutral_min"], params["neutral_max"])
 
+	var boss: BossDirector = null
+	params["boss_kind"] = GameConfig.boss_kind(level)
 	if params["boss"]:
 		_make_boss_territory(state, 1)
+		boss = BossDirector.new(params["boss_kind"], hash(seed_val) ^ 0x5eed)  # bot tohumlarını kaydırmasın
+		boss.setup(state)
+
+	# Her 5. bölüm: her oynayışta rastgele gece veya yağmur.
+	params["weather"] = ""
+	if GameConfig.is_weather_level(level):
+		var wr := RandomNumberGenerator.new()
+		wr.seed = hash(seed_val) ^ 0x7a1
+		params["weather"] = "night" if wr.randf() < 0.5 else "rain"
+		if params["weather"] == "rain":
+			state.speed_mult = GameConfig.RAIN_SPEED
+			params["par"] = int(ceil(params["par"] * 1.3 / 10.0) * 10)
+		else:
+			params["par"] = int(ceil(params["par"] * 1.15 / 10.0) * 10)
 
 	var bots: Array = []
 	for i in range(1, players.size()):
 		bots.append(BotAI.new(i, params["skill"], rng.randi()))
-	return {"state": state, "bots": bots, "params": params}
+	return {"state": state, "bots": bots, "params": params, "boss": boss}
 
 
 ## Boss'un başlangıç üssü kaleye dönüşür (büyük, hızlı üretir, dayanıklı).

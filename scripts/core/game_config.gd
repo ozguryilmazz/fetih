@@ -114,6 +114,53 @@ const QUESTS := [
 	{"id": "captures", "name": "Üs ele geçir", "desc": "Rakip veya tarafsız üs",
 		"tiers": [[10, 10], [20, 20], [30, 30], [40, 40], [50, 50], [60, 60], [70, 70], [80, 80], [90, 90], [100, 100]]},
 ]
+# ---------------------------------------------------------------- boss'lar ve hava
+
+## Boss bölümleri: bölüm -> boss türü
+const BOSSES := {10: "tepegoz", 20: "sahmeran", 30: "karakoncolos", 40: "zumruduanka", 50: "ejderha"}
+const BOSS_INFO := {
+	"tepegoz": {"name": "Tepegöz",
+		"legend": "Dağların ardında tek gözlü bir dev yaşar. Oğuz çobanlarının korkulu rüyası Tepegöz, o tek gözüyle ufkun ötesini görür. Baktığı yerde ne ordu kalır ne cesaret.",
+		"power": "Her 25 saniyede en kalabalık üssüne bakar ve askerlerinin %40'ını yok eder. Bakmadan önce üssün üstünde gözü belirir."},
+	"sahmeran": {"name": "Şahmeran",
+		"legend": "Yerin altındaki gizli bahçede yılanların kraliçesi Şahmeran yaşar. Bilgedir ama sırrını bilenleri affetmez. Yollarına bıraktığı zehir, en cesur askerleri bile eritir.",
+		"power": "Yollarına zehir gölleri bırakır. İçinden geçen askerlerin erir. Her göl 10 saniye sonra kurur."},
+	"karakoncolos": {"name": "Karakoncolos",
+		"legend": "Zemheri gecelerinde ortaya çıkan kapkara, tüylü yaratık Karakoncolos, yolcuları karanlıkta şaşırtır. O geldiğinde ay saklanır, yıldızlar söner.",
+		"power": "Ara sıra 3 saniyeliğine geceyi çağırır. Karanlıkta sadece kendi üslerinin yakınını görebilirsin."},
+	"zumruduanka": {"name": "Zümrüdüanka",
+		"legend": "Kaf Dağı'nın ardında yaşayan ölümsüz kuş Zümrüdüanka, kanatlarını açtığında gökyüzü yeşile boyanır. Yakıldığında bile küllerinden yeniden doğar.",
+		"power": "Kalesi ilk düştüğünde küllerinden doğar: kale onda kalır ve 15 askerle yeniden başlar. Bunu sadece bir kez yapabilir."},
+	"ejderha": {"name": "Ejderha",
+		"legend": "Bütün efsanelerin sonunda, en yüksek kulede uyuyan yaşlı Ejderha bekler. Uyandığında gökyüzü kızıla döner ve alevleri kaleleri kül eder.",
+		"power": "Maç boyunca iki kez uçar ve en kalabalık üssüne ateş püskürterek askerlerinin çoğunu yakar. Gelmeden önce gölgesi düşer."},
+}
+const TEPEGOZ_INTERVAL := 25.0
+const TEPEGOZ_FACTOR := 0.6
+const POISON_INTERVAL := 12.0
+const POISON_DURATION := 10.0
+const POISON_RADIUS := 52.0
+## Zehirde her bu kadar saniyede bir asker erir.
+const POISON_TICK := 0.12
+const DARK_INTERVAL := 12.0
+const DARK_DURATION := 3.0
+const REBIRTH_TROOPS := 15.0
+const DRAGON_ATTACKS := 2
+const DRAGON_FACTOR := 0.3
+## Gece haritasında görüş mesafesi (kendi üslerinden).
+const NIGHT_VISION := 240.0
+const RAIN_SPEED := 0.7
+
+
+static func boss_kind(n: int) -> String:
+	return BOSSES.get(n, "")
+
+
+## Her 5. bölüm (5, 15, 25, 35, 45) hava olaylı.
+static func is_weather_level(n: int) -> bool:
+	return n % 10 == 5
+
+
 const BAND_NAMES := ["Kolay-Orta", "Orta", "Orta-Zor", "Zor", "Çok Zor"]
 ## Zorluk eğrisi: [bölüm, bot becerisi 0..1]. Aradaki bölümler doğrusal geçer.
 const SKILL_CURVE := [[1, 0.0], [10, 0.25], [20, 0.45], [30, 0.62], [40, 0.78], [50, 0.95]]
@@ -152,7 +199,11 @@ static func level_params(n: int) -> Dictionary:
 		"neutral_min": 5 + int(n / 5.0),
 		"neutral_max": 15 + int(n / 3.0),
 	}
-	if boss:
+	if boss and boss_kind(n) == "zumruduanka":
+		# Küllerinden doğuş zaten çok güçlü; ek güçlendirme yok.
+		p["bot_upgrade"] = maxi(0, up - 2)
+		p["bot_prod_bonus"] -= 0.1
+	elif boss:
 		p["skill"] = minf(1.0, s + 0.05)
 		p["bot_upgrade"] = up + 1
 		p["bot_prod_bonus"] += 0.1

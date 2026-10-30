@@ -139,8 +139,24 @@ class LevelMap extends Control:
 				top + Vector2(9, 2), top + Vector2(18, -6), top + Vector2(18, 10)])
 			draw_colored_polygon(crown, UIKit.ACCENT if not locked else Color(1, 1, 1, 0.25))
 
+		if boss:
+			var kind := GameConfig.boss_kind(n)
+			var art_a := 1.0 if not locked else 0.35
+			var mod := Color(1, 1, 1, art_a)
+			# Kilitliyken de yaratık soluk görünür: merak uyandırsın.
+			if not locked:
+				BossArt.draw(self, kind, c + Vector2(0, -4), r * 0.72, Time.get_ticks_msec() / 1000.0)
+			_text_centered(GameConfig.BOSS_INFO[kind]["name"], c + Vector2(0, r + 46.0), 22, mod if not locked else Color(1, 1, 1, 0.4))
+		if GameConfig.is_weather_level(n):
+			_draw_weather_mark(c + Vector2(r * 0.8, -r * 0.8), locked)
+
 		if locked:
 			_draw_lock(c, Color(1, 1, 1, 0.45))
+		elif boss:
+			for i in 3:
+				var sp := c + Vector2((i - 1) * 22.0, r + 18.0)
+				var sc := UIKit.ACCENT if i < stars else Color(1, 1, 1, 0.2)
+				draw_colored_polygon(IconDraw.star_points(sp, 10.0), sc)
 		else:
 			_text_centered(str(n), c, 32 if boss else 30, Color.WHITE)
 			# Yıldızlar
@@ -148,6 +164,23 @@ class LevelMap extends Control:
 				var sp := c + Vector2((i - 1) * 22.0, r + 18.0)
 				var sc := UIKit.ACCENT if i < stars else Color(1, 1, 1, 0.2)
 				draw_colored_polygon(IconDraw.star_points(sp, 10.0), sc)
+
+	## Hava olaylı bölüm (gece ya da yağmur, oynarken rastgele): bulut + ay işareti.
+	func _draw_weather_mark(at: Vector2, locked: bool) -> void:
+		draw_set_transform(at, 0.0, Vector2(1.6, 1.6))
+		var c := Vector2.ZERO
+		var a := 0.6 if locked else 1.0
+		draw_circle(c + Vector2(6, -8), 9.0, Color(1.0, 0.9, 0.55, a))
+		draw_circle(c + Vector2(10, -11), 8.0, Color(0.12, 0.14, 0.22, a))
+		var cloud := Color(0.85, 0.9, 1.0, a)
+		draw_circle(c + Vector2(-7, 2), 8.0, cloud)
+		draw_circle(c + Vector2(2, -2), 10.0, cloud)
+		draw_circle(c + Vector2(10, 3), 7.0, cloud)
+		draw_rect(Rect2(c + Vector2(-7, 2), Vector2(17, 8)), cloud)
+		for k in 3:
+			var dp := c + Vector2(-5 + k * 7, 15)
+			draw_line(dp, dp + Vector2(-2, 6), Color(0.55, 0.75, 1.0, a), 2.0, true)
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 	func _draw_lock(c: Vector2, col: Color) -> void:
 		draw_arc(c + Vector2(0, -6), 9.0, PI, TAU, 16, col, 4.0, true)

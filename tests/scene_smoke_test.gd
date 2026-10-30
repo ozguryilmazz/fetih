@@ -78,6 +78,7 @@ func _run() -> void:
 	failed = (await _survival_check()) or failed
 	failed = (await _level_map_check()) or failed
 	failed = (await _pass_through_check()) or failed
+	failed = (await _boss_weather_check()) or failed
 	print("SONUC: ", "HATA" if failed else "TAMAM")
 	quit(1 if failed else 0)
 
@@ -165,6 +166,36 @@ func _mouse(p: Vector2, pressed: bool) -> void:
 	e.global_position = p
 	e.pressed = pressed
 	root.push_input(e, true)
+
+
+## Boss ve hava bölümleri: efsane kartı, "Geç", birkaç saniye oyun (karanlık/gece/yağmur çizimi).
+func _boss_weather_check() -> bool:
+	var bad := false
+	for lv in [5, 10, 20, 30, 40, 50, 15]:
+		root.get_node("Session").mode = "solo"
+		root.get_node("Session").level = lv
+		var game: Node2D = load("res://scenes/game.tscn").instantiate()
+		root.add_child(game)
+		for i in 3:
+			await process_frame
+		var boss := GameConfig.is_boss(lv)
+		var legend_ok: bool = (not boss) or game._overlay.find_children("*", "Control", true, false).any(func(c): return c is BossArt.Portrait)
+		if boss:
+			game._show_intro(true)  # "Geç"
+			await process_frame
+		game._close_overlay()
+		game.phase = "play"
+		game.state.dark_until = 2.0
+		for i in 60:
+			await process_frame
+		var ok: bool = legend_ok and game.state.time > 0.2 and (not boss or game.boss_dir != null)
+		if lv % 10 == 5:
+			ok = ok and game.params["weather"] in ["night", "rain"]
+		print(("  ok   " if ok else "  HATA ") + "%d. bölüm açıldı ve oynandı (%s, legend %s, t %.2f)" % [lv, game.params.get("boss_kind", "") + game.params.get("weather", ""), legend_ok, game.state.time])
+		bad = bad or not ok
+		game.queue_free()
+		await process_frame
+	return bad
 
 
 ## Hızlı geçilen aradaki üs hedef olmamalı; üstünde bekleyince olmalı.

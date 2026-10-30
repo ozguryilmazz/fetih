@@ -28,6 +28,12 @@ var players: Array = []
 var bases: Array = []
 ## Hayatta kalma modu: maç altını, kışla/maden inşası açık.
 var economy := false
+## Hava: tüm askerlerin hız çarpanı (yağmur 0.7).
+var speed_mult := 1.0
+## Geçici tehlikeler (Şahmeran zehri): {kind, pos, r, until, owner}
+var hazards: Array = []
+## Bu ana kadar karanlık (Karakoncolos).
+var dark_until := 0.0
 ## Yoldaki asker kolları:
 ## {id, owner, from, to, n, f, lanes, d, shield, dist, s0, s1, fighting}
 ##  n: koldaki asker numaralarının üst sınırı, f: önden eksilen (varan/ölen) asker sayısı
@@ -81,7 +87,7 @@ func base_type(b: Dictionary) -> Dictionary:
 
 
 func troop_speed(pid: int) -> float:
-	return GameConfig.TROOP_SPEED * float(players[pid]["speed"]) * (1.0 + float(players[pid].get("sb", 0.0)))
+	return GameConfig.TROOP_SPEED * float(players[pid]["speed"]) * (1.0 + float(players[pid].get("sb", 0.0))) * speed_mult
 
 
 ## Bir üssün saniyedeki üretimi (sahibinin güçlendirmeleri ve kışla bonusu dahil).
@@ -194,6 +200,8 @@ func troops_needed(target: Dictionary, travel_time: float, attacker: int) -> flo
 			tr += group_count(g)
 		elif g["owner"] == attacker:
 			tr -= group_count(g)
+	if target.get("rebirth", false):
+		tr += GameConfig.REBIRTH_TROOPS  # küllerinden doğacak
 	return maxf(tr, 0.0) * float(bt["defense"])
 
 
@@ -232,7 +240,29 @@ func step(dt: float) -> void:
 			g["f"] += 1
 			_arrive_one(g)
 
+	if not hazards.is_empty():
+		_apply_hazards(dt)
+
 	groups = groups.filter(func(g): return group_count(g) > 0)
+
+
+## Zehir gölü: içinden geçen (sahibi dışındaki) kolların öndeki askerleri erir.
+func _apply_hazards(dt: float) -> void:
+	hazards = hazards.filter(func(h): return h["until"] > time)
+	for h in hazards:
+		for g in groups:
+			if g["owner"] == h["owner"] or group_count(g) <= 0:
+				continue
+			var fa := front_along(g)
+			if fa < g["s0"]:
+				continue
+			if group_position(g).distance_to(h["pos"]) > h["r"]:
+				continue
+			g["poison"] = float(g.get("poison", 0.0)) + dt
+			while g["poison"] >= GameConfig.POISON_TICK and group_count(g) > 0:
+				g["poison"] -= GameConfig.POISON_TICK
+				g["f"] += 1
+				events.append({"type": "poison_kill", "pos": group_position(g), "victim": g["owner"]})
 
 
 func apply_command(cmd: Dictionary) -> void:
@@ -327,6 +357,7 @@ func _send(owner: int, sources: Array, targets: Array) -> void:
 			tgts.append(ti)
 
 	var used_sources: Array = []
+	var sent_total := 0
 	for s in sources:
 		var si := int(s)
 		if si < 0 or si >= bases.size() or used_sources.has(si):
@@ -346,10 +377,13 @@ func _send(owner: int, sources: Array, targets: Array) -> void:
 		var share := total / n
 		var rem := total % n
 		b["troops"] -= total
+		sent_total += total
 		for i in n:
 			var c := share + (1 if i < rem else 0)
 			if c > 0:
 				_spawn_group(owner, si, my_targets[i], c)
+	if sent_total > 0:
+		events.append({"type": "send", "owner": owner, "n": sent_total})
 
 
 func _spawn_group(owner: int, from_id: int, to_id: int, count: int) -> void:
@@ -404,6 +438,12 @@ func _arrive_one(g: Dictionary) -> void:
 	else:
 		_kill(g["owner"], b["owner"], troops_before - b["troops"] + elite_before - b.get("elite", 0.0))
 		_kill(b["owner"], g["owner"], 1.0)
+	if b["troops"] < 0.0 and b.get("rebirth", false):
+		# Zümrüdüanka: kale bir kez küllerinden doğar.
+		b["rebirth"] = false
+		b["troops"] = GameConfig.REBIRTH_TROOPS
+		events.append({"type": "rebirth", "base": b["id"], "owner": b["owner"], "pos": b["pos"]})
+		return
 	if b["troops"] < 0.0:
 		var old: int = b["owner"]
 		b["owner"] = g["owner"]
