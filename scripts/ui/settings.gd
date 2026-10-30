@@ -72,7 +72,14 @@ func _ready() -> void:
 		vib.text = _vib_text()
 		if SaveData.vibration and OS.has_feature("mobile"):
 			Input.vibrate_handheld(40, 0.6))
-	box.add_child(vib)
+	vib.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 14)
+	box.add_child(row)
+	row.add_child(vib)
+	var upd := UIKit.button("Güncelleme", _check_update, 80)
+	upd.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(upd)
 
 	box.add_child(UIKit.spacer())
 	box.add_child(UIKit.button("Geri", func(): Session.go("main_menu"), 84))
@@ -96,4 +103,83 @@ func _refresh() -> void:
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_GO_BACK_REQUEST:
-		Session.go("main_menu")
+		if _popup:
+			_close_popup()
+		else:
+			Session.go("main_menu")
+
+
+# ---------------------------------------------------------------- güncelleme
+
+var _popup: Control
+var _popup_box: VBoxContainer
+
+
+func _check_update() -> void:
+	_open_popup()
+	_popup_box.add_child(_center_label("Güncellemeler kontrol ediliyor...", 30, UIKit.TEXT))
+	_popup_box.add_child(_center_label("Bu sürüm: %s" % UpdateChecker.current_name(), 24, UIKit.MUTED))
+	var u := UpdateChecker.new()
+	add_child(u)
+	u.finished.connect(func(r: Dictionary):
+		u.queue_free()
+		_show_update_result(r))
+	u.check()
+
+
+func _show_update_result(r: Dictionary) -> void:
+	if not _popup:
+		return
+	for c in _popup_box.get_children():
+		c.queue_free()
+	if not r.get("ok", false):
+		_popup_box.add_child(_center_label("Kontrol edilemedi", 38, UIKit.TEXT))
+		_popup_box.add_child(_center_label(String(r.get("error", "")), 26, Color("#e57373")))
+		_popup_box.add_child(UIKit.button("Tekrar Dene", _check_update, 84))
+	elif r["newer"]:
+		_popup_box.add_child(_center_label("Yeni sürüm var!", 40, UIKit.ACCENT))
+		_popup_box.add_child(_center_label("%s  →  %s" % [r["current"], r["latest"]], 30, UIKit.TEXT))
+		var notes: Array = r.get("notes", [])
+		if not notes.is_empty():
+			_popup_box.add_child(UIKit.label("Bu sürümde:", 24, UIKit.MUTED))
+			for n in notes.slice(0, 6):
+				_popup_box.add_child(UIKit.label("• " + String(n), 22, UIKit.TEXT))
+		_popup_box.add_child(UIKit.label("İndirme bitince bildirime dokun ve \"Güncelle\"yi seç. İlerlemen silinmez.", 22, UIKit.MUTED))
+		var apk: String = r["apk"]
+		_popup_box.add_child(UIKit.button("İndir ve Kur", func(): OS.shell_open(apk), 96))
+	else:
+		_popup_box.add_child(_center_label("Oyun güncel", 40, Color("#8be28b")))
+		_popup_box.add_child(_center_label("Sürüm %s" % r["current"], 28, UIKit.TEXT))
+	_popup_box.add_child(UIKit.button("Kapat", _close_popup, 80))
+
+
+func _center_label(t: String, size: int, col: Color) -> Label:
+	var l := UIKit.label(t, size, col)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	return l
+
+
+func _open_popup() -> void:
+	_close_popup()
+	_popup = Control.new()
+	_popup.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(_popup)
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.65)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_popup.add_child(dim)
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_popup.add_child(center)
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(600, 0)
+	center.add_child(panel)
+	_popup_box = VBoxContainer.new()
+	_popup_box.add_theme_constant_override("separation", 16)
+	panel.add_child(_popup_box)
+
+
+func _close_popup() -> void:
+	if _popup:
+		_popup.queue_free()
+		_popup = null

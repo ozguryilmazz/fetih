@@ -18,6 +18,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 15  # güncelleme notları için son commit'ler
 
       - uses: actions/setup-java@v4
         with:
@@ -110,6 +112,23 @@ jobs:
           fi
           ls -la build
 
+      # Oyunun "Güncelleme" düğmesi bu dosyayı okur.
+      - name: Sürüm bilgisi (version.json)
+        run: |
+          python3 - <<'PY'
+          import json, subprocess, os
+          n = int(os.environ["RUN"])
+          subjects = subprocess.run(["git", "log", "-8", "--pretty=%s"], capture_output=True, text=True).stdout.splitlines()
+          notes = [s for s in subjects if not s.lower().startswith(("ci:", "merge"))][:6]
+          data = {"code": n, "name": "0.1.%d" % n,
+                  "apk": "https://github.com/${{ github.repository }}/releases/download/son-surum/fetih-debug.apk",
+                  "notes": notes}
+          json.dump(data, open("build/version.json", "w"), ensure_ascii=False)
+          print(json.dumps(data, ensure_ascii=False, indent=1))
+          PY
+        env:
+          RUN: ${{ github.run_number }}
+
       - name: APK'yı Actions'a yükle
         uses: actions/upload-artifact@v4
         with:
@@ -122,7 +141,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete son-surum --yes --cleanup-tag || true
-          gh release create son-surum build/fetih-debug.apk \
+          gh release create son-surum build/fetih-debug.apk build/version.json \
             --title "Son derleme #${{ github.run_number }}" \
             --notes "Commit: ${{ github.sha }}" \
             --prerelease

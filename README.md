@@ -39,6 +39,7 @@ state.io tarzı, sürükle-bırak strateji oyunu. Godot 4.6, Android, 2D.
 - **Ayarlar:** oyuncu adı, renk ve ikon (ikonlar şimdilik basit şekiller).
 - **Hakkında:** tasarımcı, hedef kullanıcılar, sürüm. Sürüm her GitHub derlemesinde otomatik `0.1.<derleme no>` olur.
 - **Görseller:** kodla üretilen hafif dokulu zemin + kenar kararması; üslerde gölge, kalınlık, kubbe gölgelendirmesi ve parlama; harita tarzı bölüm seçimi (kıvrılan yol, bant renkleri, kilitli/açık/boss noktaları). Hiç resim dosyası yok, APK büyümedi.
+- **Güncelleme:** Ayarlar → Güncelleme: GitHub "son-surum" yayınındaki `version.json` (her derlemede üretilir) ile kendi sürümünü karşılaştırır; yeni sürüm varsa notları gösterir, "İndir ve Kur" APK'yı tarayıcıda indirir. Otomatik kontrol yok. Play Store sürümünde kapatılmalı (Play politikası).
 - **Kayıt:** her şey cihazda saklanır (`user://save.cfg`), hesap yok.
 - **Çok oyunculu (internet üzerinden, Firebase):** host oda kurar, 4 haneli kod (5 dk geçerli), en fazla 3 oyuncu, bot yok, mağaza güçlendirmeleri kapalı. Host maçı hesaplar, diğerleri komut yollar ve saniyede 5 durum paketi alır. Bir oyuncunun bağlantısı koparsa (9 sn kalp atışı yok) maç herkes için biter. Kazanana 100, diğerlerine 30 altın; görevlere sayılmaz.
 

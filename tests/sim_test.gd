@@ -14,6 +14,7 @@ func _initialize() -> void:
 	_test_levels_and_rewards()
 	_test_survival_rules()
 	_test_quest_counting()
+	_test_update_compare()
 	_test_bot_matches()
 	print("SONUC: ", "HATA" if _failed else "TAMAM")
 	quit(1 if _failed else 0)
@@ -343,6 +344,16 @@ func _test_quest_counting() -> void:
 	sd.unlocked_level = backup["level"]
 	sd.quest_day = ""
 	sd.save()
+
+
+func _test_update_compare() -> void:
+	print("Güncelleme karşılaştırma")
+	_check(UpdateChecker.code_of("0.1.18") == 18 and UpdateChecker.code_of("x") == 0, "sürüm adından derleme numarası")
+	var r := UpdateChecker.evaluate({"code": 19, "name": "0.1.19", "apk": "u", "notes": ["a"]}, "0.1.18")
+	_check(r["ok"] and r["newer"] and r["latest"] == "0.1.19", "19 > 18: yeni sürüm var")
+	r = UpdateChecker.evaluate({"code": 18, "name": "0.1.18", "apk": "u"}, "0.1.18")
+	_check(r["ok"] and not r["newer"], "aynı sürüm: güncel")
+	_check(not UpdateChecker.evaluate(null, "0.1.18")["ok"], "bozuk dosya reddedildi")
 
 
 func _test_bot_matches() -> void:
