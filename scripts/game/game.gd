@@ -1424,11 +1424,16 @@ func _on_rematch_changed(info: Dictionary) -> void:
 	if not _rematch_label:
 		return
 	if info["gone"]:
+		if _rematch_label.has_meta("glow"):
+			(_rematch_label.get_meta("glow") as Tween).kill()
+			_rematch_label.modulate = Color.WHITE
+			_rematch_label.scale = Vector2.ONE
 		_rematch_label.text = "Rakip ayrıldı, rövanş yok."
 		_rematch_label.add_theme_color_override("font_color", UIKit.MUTED)
 		_rematch_btn.disabled = true
 		return
 	var votes: Array = info["votes"]
+	var count := "Rövanş: %d / %d oyuncu hazır" % [votes.size(), info["total"]]
 	# Rövanş isteyen diğer oyuncular: belirgin bildirim + titreşim (her oyuncu için bir kez).
 	var askers: Array = []
 	for v in votes:
@@ -1443,13 +1448,14 @@ func _on_rematch_changed(info: Dictionary) -> void:
 		_rematch_btn.text = "Rövanş istendi"
 		var waiting := int(info["total"]) - votes.size()
 		if waiting > 0:
-			_rematch_label.text = "Rövanş isteğin gönderildi. Rakibin cevabı bekleniyor..."
-			_rematch_label.add_theme_color_override("font_color", UIKit.MUTED)
+			_rematch_label.text = "%s\nRakibin cevabı bekleniyor..." % count
+			_rematch_label.add_theme_color_override("font_color", UIKit.TEXT)
 	elif not askers.is_empty():
-		_rematch_label.text = "%s rövanş istiyor!" % ", ".join(askers)
+		_rematch_label.text = "%s rövanş istiyor!\n%s" % [", ".join(askers), count]
 		_rematch_label.add_theme_font_size_override("font_size", 32)
 		_rematch_label.add_theme_color_override("font_color", UIKit.ACCENT)
 		_rematch_btn.text = "Rövanşı Kabul Et"
+		_glow(_rematch_label)
 	if Net.is_host and votes.size() >= int(info["total"]):
 		_rematch_label.text = "Yeni harita kuruluyor..."
 		var players: Array = []
@@ -1458,6 +1464,19 @@ func _on_rematch_changed(info: Dictionary) -> void:
 		Net.start_rematch(MatchState.create(randi(), players, 8 + 3 * players.size(), 6, 16))
 	elif votes.size() >= int(info["total"]):
 		_rematch_label.text = "Yeni harita kuruluyor..."
+
+
+## Yazıyı sürekli parlatır (rakip rövanş isteyince dikkat çeksin).
+func _glow(l: Label) -> void:
+	if l.has_meta("glow"):
+		return
+	l.pivot_offset = l.size / 2.0
+	var tw := l.create_tween().set_loops()
+	l.set_meta("glow", tw)
+	tw.tween_property(l, "modulate", Color(1.7, 1.5, 0.9), 0.45).set_trans(Tween.TRANS_SINE)
+	tw.parallel().tween_property(l, "scale", Vector2(1.06, 1.06), 0.45).set_trans(Tween.TRANS_SINE)
+	tw.tween_property(l, "modulate", Color.WHITE, 0.45).set_trans(Tween.TRANS_SINE)
+	tw.parallel().tween_property(l, "scale", Vector2.ONE, 0.45).set_trans(Tween.TRANS_SINE)
 
 
 ## Dikkat çeksin diye düğmeyi birkaç kez büyütüp küçültür.
