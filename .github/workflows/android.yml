@@ -91,6 +91,10 @@ jobs:
           timeout 300 ~/godot/godot --headless --path . -s tests/sim_test.gd
           timeout 120 ~/godot/godot --headless --path . -s tests/scene_smoke_test.gd
 
+      # İki ayrı oyun kopyası, sahte Firebase sunucusu üzerinden: oda, maç, kopma.
+      - name: Çok oyunculu testler
+        run: tests/run_net_tests.sh ~/godot/godot
+
       - name: APK derle
         run: |
           mkdir -p build

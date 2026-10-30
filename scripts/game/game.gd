@@ -35,6 +35,11 @@ var _press_base := -1
 var _press_pos := Vector2.ZERO
 var _press_ms := 0
 var _menu_base := -1
+## Çok oyunculu (Session.mode == "online")
+var online := false
+var _snap_timer := 0.0
+var _pending_cmds: Array = []
+var _eliminated := false
 var _hover_base := -1
 var _hover_ms := 0
 ## Maç başında hazır bekleyen görev ödülü (maç sonunda yeni ödül var mı diye).
@@ -67,7 +72,9 @@ func _ready() -> void:
 	_font = ThemeDB.fallback_font
 	_rng.randomize()
 	_soldier_tex = _make_soldier_texture()
-	if Session.mode == "survival":
+	if Session.mode == "online":
+		_setup_online()
+	elif Session.mode == "survival":
 		_setup_survival()
 	else:
 		_setup_solo()
@@ -75,7 +82,39 @@ func _ready() -> void:
 	get_viewport().size_changed.connect(_layout)
 	_layout()
 	_quest_gold_start = SaveData.quests_ready_total()
-	_show_intro()
+	if online:
+		phase = "play"
+		_show_banner("Oyun başladı!")
+	else:
+		_show_intro()
+
+
+func _setup_online() -> void:
+	online = true
+	state = MatchState.from_setup(Net.setup)
+	my_id = Net.my_slot
+	bots = []
+	params = {"boss": false, "par": 0}
+	Net.match_ended.connect(_end_online)
+	if Net.is_host:
+		Net.command_received.connect(_on_net_command)
+	else:
+		Net.snapshot_received.connect(_on_net_snapshot)
+
+
+func _on_net_command(_slot: int, cmd: Dictionary) -> void:
+	_pending_cmds.append(cmd)
+
+
+func _on_net_snapshot(snap: Dictionary) -> void:
+	if not finished:
+		state.apply_snapshot(snap)
+
+
+func _quest(id: String, n: float) -> void:
+	# Çok oyunculu maçlar görevlere sayılmaz.
+	if not online:
+		SaveData.quest_add(id, n)
 
 
 func _setup_solo() -> void:
@@ -112,10 +151,18 @@ func _process(delta: float) -> void:
 			_acc -= GameConfig.SIM_DT
 			if survival:
 				survival.update(state, GameConfig.SIM_DT)
+			for cmd in _pending_cmds:
+				state.apply_command(cmd)
+			_pending_cmds.clear()
 			for bot in bots:
 				for cmd in bot.update(state, GameConfig.SIM_DT):
 					state.apply_command(cmd)
 			state.step(GameConfig.SIM_DT)
+		if online and Net.is_host:
+			_snap_timer -= delta
+			if _snap_timer <= 0.0:
+				_snap_timer = 1.0 / NetConfig.SNAPSHOT_HZ
+				Net.send_snapshot(state.snapshot())
 		_consume_events()
 		_update_hud()
 		_check_long_press()
@@ -130,7 +177,10 @@ func _process(delta: float) -> void:
 
 
 func _issue(cmd: Dictionary) -> void:
-	# Multiplayer'da burası komutu host'a gönderecek.
+	# Çok oyunculuda istemci hamleyi host'a yollar; anında görünsün diye yerelde de uygular
+	# (host'un sonraki durum paketi gerçeği getirir).
+	if online and not Net.is_host:
+		Net.send_command(cmd)
 	state.apply_command(cmd)
 
 
@@ -160,7 +210,7 @@ func _consume_events() -> void:
 				_burst(e["pos"], col, 18, 220.0, 0.6, 4.5)
 				_pop[e["base"]] = 0.35
 				if e["to"] == my_id:
-					SaveData.quest_add("captures", 1.0)
+					_quest("captures", 1.0)
 					_vibrate(35, 0.6)
 					_shake(4.0, 0.15)
 				elif e["from"] == my_id:
@@ -169,10 +219,10 @@ func _consume_events() -> void:
 					_shake(9.0, 0.25)
 			"kill":
 				if e["killer"] == my_id:
-					SaveData.quest_add("kills", e["n"])
+					_quest("kills", e["n"])
 			"clash_kill":
 				if e["killer"] == my_id:
-					SaveData.quest_add("clash_kills", e["n"])
+					_quest("clash_kills", e["n"])
 			"build":
 				var col := state.player_color(e["owner"])
 				var bp: Vector2 = state.bases[e["base"]]["pos"]
@@ -562,6 +612,8 @@ func _build_hud() -> void:
 		title += "  ·  BOSS"
 	if survival:
 		title = "Hayatta Kalma"
+	if online:
+		title = "Çok Oyunculu  ·  Oda %s" % Net.code
 	info.add_child(UIKit.label(title, 32))
 	_loss_label = UIKit.label("", 22, UIKit.MUTED)
 	info.add_child(_loss_label)
@@ -589,6 +641,14 @@ func _show_banner(text: String) -> void:
 
 
 func _update_hud() -> void:
+	if online:
+		_time_label.text = _fmt_time(state.time)
+		var names: Array = []
+		for p in state.players:
+			var count := state.bases.filter(func(b): return b["owner"] == p["id"]).size()
+			names.append("%s %d" % [p["name"], count])
+		_loss_label.text = "   ".join(names)
+		return
 	if survival:
 		var p: Dictionary = state.players[my_id]
 		var rate := GameConfig.SURVIVAL_GOLD_RATE
@@ -791,6 +851,9 @@ func _show_intro() -> void:
 
 
 func _pause() -> void:
+	if online:
+		_online_menu()
+		return
 	if phase != "play":
 		return
 	phase = "pause"
@@ -819,6 +882,15 @@ func _resume() -> void:
 # ---------------------------------------------------------------- bitiş
 
 func _check_end() -> void:
+	if online:
+		var alive := state.alive_players()
+		if not alive.has(my_id) and not _eliminated:
+			_eliminated = true
+			_dragging = false
+			_show_banner("Elendin! Maçı izliyorsun.")
+		if Net.is_host and alive.size() <= 1:
+			Net.finish(alive[0] if alive.size() == 1 else -1)
+		return
 	if survival:
 		var res := Survival.result(state)
 		if res != "":
@@ -935,11 +1007,83 @@ func _add_quest_note(box: VBoxContainer) -> void:
 func _exit_tree() -> void:
 	# Maç yarıda bırakılsa da görev ilerlemesi kaybolmasın.
 	SaveData.save()
+	if online:
+		Net.leave()
+
+
+# ---------------------------------------------------------------- çok oyunculu
+
+## Oyun durmaz (ortak maç); sadece çıkış seçeneği sunar.
+func _online_menu() -> void:
+	if finished or _overlay_layer:
+		return
+	_dragging = false
+	var box := _open_overlay(0.45)
+	_add_title(box, "Çok Oyunculu", 46, UIKit.TEXT)
+	_add_title(box, "Oyun arkada devam ediyor.", 24, UIKit.MUTED)
+	box.add_child(UIKit.button("Oyuna Dön", _close_overlay, 100))
+	box.add_child(UIKit.button("Oyundan Çık", func():
+		Net.leave()
+		Session.go("multiplayer")))
+
+
+func _end_online(info: Dictionary) -> void:
+	if finished:
+		return
+	finished = true
+	phase = "end"
+	_dragging = false
+	_close_overlay()
+	var reason: String = info.get("reason", "")
+	var title := "Oyun Bitti"
+	var sub := ""
+	var gold := 0
+	var col := UIKit.TEXT
+	if reason == "win":
+		var w := int(info.get("winner", -1))
+		if w == my_id:
+			title = "Kazandın!"
+			col = UIKit.ACCENT
+			gold = NetConfig.WIN_GOLD
+		else:
+			title = "Kaybettin"
+			gold = NetConfig.LOSE_GOLD
+			if w >= 0 and w < state.players.size():
+				sub = "Kazanan: %s" % state.players[w]["name"]
+	elif reason == "disconnect":
+		title = "Bağlantı Koptu"
+		sub = "%s oyundan düştü. Maç sona erdi." % info.get("name", "Bir oyuncu")
+	else:
+		title = "Oyun Sona Erdi"
+		sub = "Bir oyuncu oyundan çıktı."
+	if gold > 0:
+		SaveData.gold += gold
+		SaveData.save()
+	_vibrate(160, 0.8)
+	var box := _open_overlay()
+	_add_title(box, title, 56, col)
+	if sub != "":
+		_add_title(box, sub, 28, UIKit.TEXT)
+	_add_title(box, "Süre %s" % _fmt_time(state.time), 26, UIKit.MUTED)
+	if gold > 0:
+		_add_title(box, "+%d altın" % gold, 36, UIKit.ACCENT)
+	box.add_child(UIKit.button("Çok Oyunculu", func():
+		Net.leave()
+		Session.go("multiplayer"), 100))
+	box.add_child(UIKit.button("Ana Menü", func():
+		Net.leave()
+		Session.go("main_menu")))
 
 
 func _notification(what: int) -> void:
 	match what:
 		NOTIFICATION_WM_GO_BACK_REQUEST:
+			if online and not finished:
+				if _overlay_layer:
+					_close_overlay()
+				else:
+					_online_menu()
+				return
 			if _menu_base >= 0:
 				_close_build_menu()
 				return
@@ -953,4 +1097,5 @@ func _notification(what: int) -> void:
 				_:
 					Session.go("main_menu")
 		NOTIFICATION_APPLICATION_PAUSED, NOTIFICATION_APPLICATION_FOCUS_OUT:
-			_pause()
+			if not online:
+				_pause()

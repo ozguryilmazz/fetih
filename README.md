@@ -40,7 +40,16 @@ state.io tarzı, sürükle-bırak strateji oyunu. Godot 4.6, Android, 2D.
 - **Hakkında:** tasarımcı, hedef kullanıcılar, sürüm. Sürüm her GitHub derlemesinde otomatik `0.1.<derleme no>` olur.
 - **Görseller:** kodla üretilen hafif dokulu zemin + kenar kararması; üslerde gölge, kalınlık, kubbe gölgelendirmesi ve parlama; harita tarzı bölüm seçimi (kıvrılan yol, bant renkleri, kilitli/açık/boss noktaları). Hiç resim dosyası yok, APK büyümedi.
 - **Kayıt:** her şey cihazda saklanır (`user://save.cfg`), hesap yok.
-- **Çok oyunculu ekran:** arayüz hazır, online bağlantı henüz yok (sıradaki adım).
+- **Çok oyunculu (internet üzerinden, Firebase):** host oda kurar, 4 haneli kod (5 dk geçerli), en fazla 3 oyuncu, bot yok, mağaza güçlendirmeleri kapalı. Host maçı hesaplar, diğerleri komut yollar ve saniyede 5 durum paketi alır. Bir oyuncunun bağlantısı koparsa (9 sn kalp atışı yok) maç herkes için biter. Kazanana 100, diğerlerine 30 altın; görevlere sayılmaz.
+
+## Çok oyunculu kurulum (Firebase)
+
+1. console.firebase.google.com → proje oluştur.
+2. **Build → Realtime Database** → oluştur (europe-west1, kilitli mod) → **Rules** sekmesine `database.rules.json` içeriğini yapıştır → Yayınla.
+3. **Build → Authentication** → Başlayın → **Anonim** girişi etkinleştir.
+4. `scripts/net/net_config.gd` içine `DB_URL` (veritabanı adresi) ve `API_KEY` (Proje ayarları → Web API anahtarı) yaz.
+
+Testler gerçek Firebase yerine `tools/fake_firebase/server.py` (aynı REST/canlı dinleme davranışı ve kurallar) ile çalışır: `tests/run_net_tests.sh <godot>`.
 
 ## Klasör yapısı
 
@@ -57,6 +66,8 @@ scripts/core/           Oyun kuralları — grafikten bağımsız
 scripts/game/game.gd    Oyun ekranı: çizim, dokunmatik giriş, bitiş paneli
 scripts/ui/             Menü, bölümler, mağaza, ayarlar, çok oyunculu
 scripts/autoload/       SaveData (cihaz kaydı), Session (ekranlar arası bilgi)
+scripts/net/            Çok oyunculu: Firebase istemcisi, canlı dinleme, oda yönetimi (Net autoload)
+database.rules.json     Firebase güvenlik kuralları
 tests/                  Ekransız testler (GitHub her derlemede çalıştırır)
 tools/debug.keystore    APK imzası (sadece test sürümleri için)
 ```

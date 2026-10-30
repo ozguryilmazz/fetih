@@ -514,6 +514,11 @@ func setup_dict() -> Dictionary:
 static func from_setup(d: Dictionary) -> MatchState:
 	var s := MatchState.new()
 	s.players = d["players"]
+	# Ağdan (JSON) gelen sayılar ondalık olur; tam sayıya çevir.
+	for p in s.players:
+		for k in ["id", "color", "icon", "start_bonus", "road"]:
+			if p.has(k):
+				p[k] = int(p[k])
 	s.economy = d.get("economy", false)
 	for i in d["bases"].size():
 		var b: Dictionary = d["bases"][i]

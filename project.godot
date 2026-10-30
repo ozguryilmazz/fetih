@@ -17,6 +17,7 @@ config/icon="res://icon.svg"
 
 SaveData="*res://scripts/autoload/save_data.gd"
 Session="*res://scripts/autoload/session.gd"
+Net="*res://scripts/net/net.gd"
 
 [display]
 
