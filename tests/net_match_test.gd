@@ -132,6 +132,7 @@ func _rematch(net: Node, game: Node2D) -> void:
 		_check(g2.state.time > 1.0, "client yeni maçın durum paketlerini alıyor")
 	# Biri ayrılınca diğeri "rakip ayrıldı" görmeli: ikinci maçı host bitirir.
 	if role.begins_with("host"):
+		await create_timer(5.0).timeout  # client'ın yükleme ekranı daha geç bitebilir
 		net.finish(0)
 		await create_timer(1.0).timeout
 		net.leave()
