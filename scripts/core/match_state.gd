@@ -87,7 +87,10 @@ func base_type(b: Dictionary) -> Dictionary:
 
 
 func troop_speed(pid: int) -> float:
-	return GameConfig.TROOP_SPEED * float(players[pid]["speed"]) * (1.0 + float(players[pid].get("sb", 0.0))) * speed_mult
+	var v := GameConfig.TROOP_SPEED * float(players[pid]["speed"]) * (1.0 + float(players[pid].get("sb", 0.0))) * speed_mult
+	if time < float(players[pid].get("slow_until", 0.0)):
+		v *= GameConfig.STORM_SPEED  # fırtına
+	return v
 
 
 ## Bir üssün saniyedeki üretimi (sahibinin güçlendirmeleri ve kışla bonusu dahil).
@@ -120,7 +123,7 @@ func base_strength(b: Dictionary) -> float:
 
 ## Maden askerleri saldıramaz.
 static func can_send_from(b: Dictionary) -> bool:
-	return b["type"] != "mine" and not b.get("cursed", false)
+	return b["type"] != "mine" and not b.get("cursed", false) and not b.get("besieged", false)
 
 
 ## Bu üsten tek seferde gönderilebilecek asker sayısı. Kaleler (oyuncu kalesi ve
@@ -159,10 +162,16 @@ func front_along(g: Dictionary) -> float:
 	return row_along(g, front_row(g))
 
 
+## Kolun yürüdüğü doğrunun uçları. Devriye kolları üsler yerine ara noktalardan geçer.
+func path_ends(g: Dictionary) -> Array:
+	if g.has("pa"):
+		return [g["pa"], g["pb"]]
+	return [bases[g["from"]]["pos"], bases[g["to"]]["pos"]]
+
+
 func path_point(g: Dictionary, along: float) -> Vector2:
-	var a: Vector2 = bases[g["from"]]["pos"]
-	var b: Vector2 = bases[g["to"]]["pos"]
-	return a.lerp(b, clampf(along / g["dist"], 0.0, 1.0))
+	var e := path_ends(g)
+	return (e[0] as Vector2).lerp(e[1], clampf(along / g["dist"], 0.0, 1.0))
 
 
 ## Kolun en öndeki askerinin konumu.
@@ -230,11 +239,20 @@ func step(dt: float) -> void:
 		elif b["troops"] > cap:
 			b["troops"] = maxf(cap, b["troops"] - GameConfig.OVERFLOW_DECAY * dt)
 
+	_update_afflictions(dt)
 	_resolve_clashes()
 
 	for g in groups:
+		if g.has("orbit_until"):
+			_update_siege(g)
+			continue
 		if not g["fighting"]:
 			g["d"] += troop_speed(g["owner"]) * dt
+		if g.has("legs") and front_along(g) >= g["s1"] and not g["legs"].is_empty():
+			_next_leg(g)
+		if g.get("siege", false) and front_along(g) >= g["s1"]:
+			_start_siege(g)
+			continue
 		# Hedefin kenarına ulaşan askerler tek tek üsse girer.
 		while group_count(g) > 0 and front_along(g) >= g["s1"]:
 			g["f"] += 1
@@ -244,6 +262,134 @@ func step(dt: float) -> void:
 		_apply_hazards(dt)
 
 	groups = groups.filter(func(g): return group_count(g) > 0)
+
+
+# ---------------------------------------------------------------- hayatta kalma yetenekleri
+
+## Zehirli üs saniyede 1 asker kaybeder; kuşatma bitişi.
+func _update_afflictions(dt: float) -> void:
+	for b in bases:
+		if b.has("venom_until"):
+			if time >= b["venom_until"] or b["owner"] == NEUTRAL:
+				b.erase("venom_until")
+				b.erase("venom_acc")
+				continue
+			b["venom_acc"] = float(b.get("venom_acc", 0.0)) + dt
+			while b["venom_acc"] >= 1.0:
+				b["venom_acc"] -= 1.0
+				if b["troops"] >= 1.0:
+					b["troops"] -= 1.0
+					events.append({"type": "venom_tick", "base": b["id"], "pos": b["pos"]})
+
+
+## Devriye: ara noktalar listesi; kol her noktada dönüp sonraki noktaya yürür, en son kaleye girer.
+func spawn_patrol(owner: int, home_id: int, waypoints: Array, count: int) -> void:
+	var g := _make_group(_next_group_id, owner, home_id, home_id, count, 0,
+		clampi(ceili(count / float(SOLDIERS_PER_LANE)), 1, MAX_LANES), -1.0, 0)
+	_next_group_id += 1
+	var pts: Array = waypoints.duplicate()
+	pts.append(bases[home_id]["pos"])
+	g["legs"] = pts
+	g["patrol"] = true
+	g["pa"] = bases[home_id]["pos"]
+	g["pb"] = pts.pop_front()
+	g["dist"] = maxf(1.0, (g["pa"] as Vector2).distance_to(g["pb"]))
+	g["s0"] = base_type(bases[home_id])["radius"]
+	g["s1"] = g["dist"]
+	g["legs"] = pts
+	groups.append(g)
+
+
+func _next_leg(g: Dictionary) -> void:
+	var over: float = g["d"] - g["dist"]
+	g["pa"] = g["pb"]
+	g["pb"] = g["legs"].pop_front()
+	g["dist"] = maxf(1.0, (g["pa"] as Vector2).distance_to(g["pb"]))
+	g["d"] = over
+	g["s0"] = 0.0
+	if g["legs"].is_empty():
+		# Son ayak: kaleye girer (normal varış).
+		g["s1"] = maxf(g["dist"] - float(base_type(bases[g["to"]])["radius"]), 0.0)
+	else:
+		g["s1"] = g["dist"]
+
+
+## Tek zehirli asker: varınca üs 10 sn zehirlenir.
+func spawn_venom(owner: int, from_id: int, to_id: int) -> void:
+	_spawn_group(owner, from_id, to_id, 1)
+	groups[-1]["venom"] = true
+
+
+## Kuşatma kolu: hedefin kenarına varınca girmez, etrafında döner.
+func spawn_siege(owner: int, from_id: int, to_id: int, count: int) -> void:
+	_spawn_group(owner, from_id, to_id, count)
+	groups[-1]["siege"] = true
+
+
+func _start_siege(g: Dictionary) -> void:
+	var b: Dictionary = bases[g["to"]]
+	g.erase("siege")
+	if b["owner"] == g["owner"] or b["owner"] == NEUTRAL:
+		g["n"] = g["f"]  # hedef el değiştirdi: kuşatma dağılır
+		return
+	g["orbit_until"] = time + GameConfig.SIEGE_DURATION
+	g["fighting"] = false
+	b["besieged"] = true
+	events.append({"type": "siege", "base": b["id"], "pos": b["pos"], "owner": g["owner"]})
+
+
+func _update_siege(g: Dictionary) -> void:
+	var b: Dictionary = bases[g["to"]]
+	if time >= g["orbit_until"] or group_count(g) <= 0 or b["owner"] == g["owner"]:
+		g["n"] = g["f"]
+		_lift_siege(b)
+
+
+func _lift_siege(b: Dictionary) -> void:
+	if not b.get("besieged", false):
+		return
+	for g in groups:
+		if g.has("orbit_until") and g["to"] == b["id"] and group_count(g) > 0 and time < g["orbit_until"]:
+			return  # başka kuşatma kolu hâlâ orada
+	b.erase("besieged")
+	events.append({"type": "siege_end", "base": b["id"], "pos": b["pos"]})
+
+
+## Kuşatılan üsse gelen takviye önce kuşatanlarla çarpışır (1'e 1).
+func _break_siege(b: Dictionary, owner: int) -> bool:
+	for g in groups:
+		if g.has("orbit_until") and g["to"] == b["id"] and group_count(g) > 0:
+			g["f"] += 1
+			events.append({"type": "clash", "a": owner, "b": g["owner"], "pos": b["pos"]})
+			events.append({"type": "clash_kill", "killer": owner, "victim": g["owner"], "n": 1.0})
+			events.append({"type": "clash_kill", "killer": g["owner"], "victim": owner, "n": 1.0})
+			if group_count(g) <= 0:
+				g["orbit_until"] = time
+				_update_siege(g)
+			return true
+	return false
+
+
+## Ateş yağmuru: daire içindeki (sahibi dışındaki) yürüyen askerler ölür, üslerin %30'u yanar.
+func meteor_strike(owner: int, pos: Vector2, r: float) -> void:
+	for g in groups:
+		if g["owner"] == owner or g.has("orbit_until"):
+			continue
+		var inside := 0
+		for row in range(front_row(g), last_row(g) + 1):
+			var al := row_along(g, row)
+			if al < g["s0"]:
+				break
+			if path_point(g, al).distance_to(pos) <= r:
+				inside += 1
+		if inside > 0:
+			var n := mini(inside * int(g["lanes"]), group_count(g))
+			g["f"] += n
+			events.append({"type": "kill", "killer": owner, "victim": g["owner"], "n": float(n)})
+	for b in bases:
+		if b["owner"] != owner and b["owner"] != NEUTRAL and b["pos"].distance_to(pos) <= r + 20.0:
+			b["troops"] *= 1.0 - GameConfig.METEOR_BASE_LOSS
+	events.append({"type": "meteor", "pos": pos, "r": r})
 
 
 ## Zehir gölü: içinden geçen (sahibi dışındaki) kolların öndeki askerleri erir.
@@ -410,6 +556,13 @@ func _make_group(id: int, owner: int, from_id: int, to_id: int, n: int, f: int, 
 func _arrive_one(g: Dictionary) -> void:
 	var b: Dictionary = bases[g["to"]]
 	var pos := path_point(g, g["s1"])
+	if g.get("venom", false):
+		if b["owner"] != g["owner"] and b["owner"] != NEUTRAL:
+			b["venom_until"] = time + GameConfig.VENOM_DURATION
+			events.append({"type": "venom", "base": b["id"], "pos": b["pos"]})
+		return
+	if b["owner"] == g["owner"] and b.get("besieged", false) and _break_siege(b, g["owner"]):
+		return
 	if b["owner"] == g["owner"]:
 		b["troops"] += 1.0
 		events.append({"type": "reinforce", "base": b["id"], "owner": g["owner"], "pos": pos})
@@ -448,6 +601,14 @@ func _arrive_one(g: Dictionary) -> void:
 		var old: int = b["owner"]
 		b["owner"] = g["owner"]
 		b["troops"] = -b["troops"] * defense
+		# Yağma: maden düşerse eski sahibinin maç altınının bir kısmı alana geçer.
+		if economy and b["type"] == "mine" and old >= 0:
+			var loot: float = float(players[old].get("gold", 0.0)) * GameConfig.PLUNDER_SHARE
+			players[old]["gold"] = float(players[old].get("gold", 0.0)) - loot
+			players[g["owner"]]["gold"] = float(players[g["owner"]].get("gold", 0.0)) + loot
+			events.append({"type": "plunder", "base": b["id"], "pos": b["pos"], "from": old, "to": g["owner"], "gold": loot})
+		b.erase("besieged")
+		b.erase("venom_until")
 		# Ele geçirilen kışla ve maden normal üsse döner.
 		if b["type"] == "barracks" or b["type"] == "mine":
 			b["type"] = "normal"
@@ -473,13 +634,15 @@ func _resolve_clashes() -> void:
 	var count := groups.size()
 	for i in count:
 		var a: Dictionary = groups[i]
+		if a.has("orbit_until"):
+			continue
 		var fa := front_along(a)
 		if not _on_road(a, fa):
 			continue
 		var pa := path_point(a, fa)
 		for j in count:
 			var b: Dictionary = groups[j]
-			if b["owner"] == a["owner"] or group_count(b) <= 0:
+			if b["owner"] == a["owner"] or group_count(b) <= 0 or b.has("orbit_until"):
 				continue
 			var hit_row := -1
 			for r in range(front_row(b), last_row(b) + 1):
@@ -536,6 +699,9 @@ func _split(g: Dictionary, row: int) -> Dictionary:
 	var rear := _make_group(_next_group_id, g["owner"], g["from"], g["to"],
 		int(g["n"]) - cut, 0, g["lanes"], row_along(g, row), 0)
 	_next_group_id += 1
+	for k in ["pa", "pb", "dist", "s0", "s1", "legs", "patrol", "siege", "venom"]:
+		if g.has(k):
+			rear[k] = g[k].duplicate() if g[k] is Array else g[k]
 	g["n"] = cut
 	groups.append(rear)
 	return rear

@@ -73,6 +73,8 @@ var _warns: Array = []      # {base, kind ("gaze"/"dragon"), until}
 var _flames: Array = []     # {p, life, max, col, r} büyük alev/ışık patlaması
 var _rain: Array = []       # yağmur çizgileri (ekran koordinatı)
 var _bannered := {}         # olay türü -> bir kez gösterildi
+var _banner_sub: Label
+var _storm_until := -1.0    # hayatta kalma fırtınası (yağmur görüntüsü)
 # Maç özeti
 var _history: Array = []    # [[zaman, [üs sayıları]]]
 var _next_hist := 0.0
@@ -351,8 +353,61 @@ func _consume_events() -> void:
 				if _rng.randf() < 0.5:
 					_burst(e["pos"], Color("#7dff8a"), 2, 60.0, 0.4, 3.0)
 			"darkness":
-				_show_banner("Karakoncolos geceyi çağırdı!")
+				_show_banner("Gece çöktü!" if e.get("by", "") == "survival" else "Karakoncolos geceyi çağırdı!")
 				_vibrate(50, 0.5)
+			"ability_intro":
+				_show_banner(e["title"], e["desc"], 4.0)
+				_vibrate(60, 0.6)
+			"rage":
+				_show_banner("ÖFKE MODU!", "Rakip köşeye sıkıştı: dalgalar sıklaştı, yetenekler hızlandı. 10. dalgaya kadar dayan!", 4.5)
+				_rings.append({"p": e["pos"], "life": 1.0, "max": 1.0, "col": Color("#ff5252"), "r0": 60.0, "r1": 300.0})
+				_shake(10.0, 0.5)
+				_vibrate(200, 1.0)
+			"venom":
+				_rings.append({"p": e["pos"], "life": 0.6, "max": 0.6, "col": Color("#7dff8a"), "r0": 20.0, "r1": 80.0})
+				_burst(e["pos"], Color("#7dff8a"), 14, 140.0, 0.6, 4.0)
+				if state.bases[e["base"]]["owner"] == my_id:
+					_show_banner("Üssün zehirlendi!")
+					_vibrate(80, 0.7)
+			"venom_tick":
+				_burst(e["pos"], Color("#7dff8a"), 3, 50.0, 0.5, 3.0)
+			"siege":
+				_rings.append({"p": e["pos"], "life": 0.6, "max": 0.6, "col": Color("#ff8a65"), "r0": 30.0, "r1": 90.0})
+				_show_banner("Üssün kuşatıldı!", "Takviye yollarsan kuşatmayı kırarsın.", 2.5)
+				_vibrate(80, 0.7)
+			"siege_end":
+				_rings.append({"p": e["pos"], "life": 0.5, "max": 0.5, "col": Color("#ffffff"), "r0": 30.0, "r1": 80.0})
+			"plunder_sent":
+				_show_banner("Madenine yağmacılar geliyor!")
+			"plunder":
+				_burst(e["pos"], Color("#ffd166"), 26, 220.0, 0.8, 4.5)
+				if e["from"] == my_id:
+					_show_banner("Yağmalandı! -%d altın" % int(e["gold"]))
+					_vibrate(120, 0.8)
+			"storm":
+				_storm_until = e["until"]
+				if _rain.is_empty():
+					for i in 90:
+						_rain.append(Vector2(randf() * 760.0 - 20.0, randf() * 1320.0 - 20.0))
+				_show_banner("Fırtına! Askerlerin yavaşladı.")
+			"meteor_warn":
+				_warns.append({"kind": "meteor", "pos": e["pos"], "r": e["r"], "until": e["until"]})
+				_show_banner("Ateş yağmuru geliyor!")
+				_vibrate(50, 0.5)
+			"meteor":
+				_warns = _warns.filter(func(w): return w["kind"] != "meteor")
+				_flames.append({"p": e["pos"], "life": 1.0, "max": 1.0, "col": Color("#ff6d00"), "r": e["r"] * 1.3})
+				_burst(e["pos"], Color("#ff9f1c"), 40, 280.0, 0.9, 5.5)
+				_shake(12.0, 0.4)
+				_vibrate(180, 1.0)
+			"betray_warn":
+				_warns.append({"base": e["base"], "kind": "betray", "until": state.time + 2.0})
+				_show_banner("İhanet! Küçük üssünü takviye et!")
+				_vibrate(60, 0.6)
+			"betrayal":
+				_warns = _warns.filter(func(w): return w["kind"] != "betray")
+				_burst(e["pos"], state.player_color(1), 20, 180.0, 0.7, 4.0)
+				_show_banner("Bir üssün düşmana katıldı!")
 			"rebirth":
 				_flames.append({"p": e["pos"], "life": 1.4, "max": 1.4, "col": Color("#19c39a"), "r": 160.0})
 				_rings.append({"p": e["pos"], "life": 1.0, "max": 1.0, "col": Color("#ffd166"), "r0": 40.0, "r1": 220.0})
@@ -423,6 +478,9 @@ func _update_effects(delta: float) -> void:
 		f["life"] -= delta
 	_flames = _flames.filter(func(f): return f["life"] > 0.0)
 	_warns = _warns.filter(func(w): return w["until"] > state.time - 0.1)
+	if _storm_until >= 0.0 and state.time > _storm_until:
+		_storm_until = -1.0
+		_rain.clear()
 	for i in _rain.size():
 		var r: Vector2 = _rain[i] + Vector2(-140.0, 900.0) * delta
 		if r.y > 1300.0:
@@ -649,10 +707,23 @@ func _draw_hazards() -> void:
 func _draw_warns() -> void:
 	var t := Time.get_ticks_msec() / 1000.0
 	for w in _warns:
+		if w["kind"] == "meteor":
+			var mk := clampf(1.0 - (w["until"] - state.time) / GameConfig.METEOR_WARN, 0.0, 1.0)
+			var fl := 0.5 + 0.5 * sin(t * (10.0 + mk * 20.0))
+			draw_circle(w["pos"], w["r"], Color(1.0, 0.2, 0.1, 0.12 + 0.18 * fl))
+			draw_arc(w["pos"], w["r"], 0.0, TAU, 56, Color(1.0, 0.35, 0.2, 0.6 + 0.4 * fl), 4.0, true)
+			draw_arc(w["pos"], w["r"] * (1.0 - mk), 0.0, TAU, 40, Color(1.0, 0.8, 0.3, 0.8), 3.0, true)
+			continue
 		var b: Dictionary = state.bases[w["base"]]
 		var c: Vector2 = b["pos"]
 		var r: float = state.base_type(b)["radius"]
 		var k := clampf(1.0 - (w["until"] - state.time) / BossDirector.WARN, 0.0, 1.0)
+		if w["kind"] == "betray":
+			var bp := c + Vector2(0, -r - 40.0)
+			draw_circle(bp, 20.0, Color("#ff5252"))
+			draw_rect(Rect2(bp + Vector2(-3, -12), Vector2(6, 15)), Color.WHITE)
+			draw_circle(bp + Vector2(0, 10), 3.5, Color.WHITE)
+			continue
 		if w["kind"] == "curse":
 			var pulse := 0.5 + 0.5 * sin(t * 10.0)
 			draw_arc(c, r + 12.0 + pulse * 5.0, 0.0, TAU, 56, Color(0.7, 0.3, 1.0, 0.5 + 0.4 * k), 5.0, true)
@@ -693,8 +764,12 @@ func _draw_warns() -> void:
 
 ## Asker kolunu sıra sıra çizer. Henüz üssün içinde olan askerler görünmez.
 func _draw_column(g: Dictionary, fogged := false) -> void:
-	var a: Vector2 = state.bases[g["from"]]["pos"]
-	var b: Vector2 = state.bases[g["to"]]["pos"]
+	if g.has("orbit_until"):
+		_draw_orbit(g)
+		return
+	var ends := state.path_ends(g)
+	var a: Vector2 = ends[0]
+	var b: Vector2 = ends[1]
 	var dir := (b - a).normalized()
 	var perp := Vector2(-dir.y, dir.x)
 	var lanes: int = g["lanes"]
@@ -714,6 +789,21 @@ func _draw_column(g: Dictionary, fogged := false) -> void:
 		if fogged and g["owner"] != my_id and not _visible(pos):
 			continue
 		draw_texture_rect(_soldier_tex, Rect2(pos - tex_size / 2.0, tex_size), false, col)
+
+
+## Kuşatma kolu: üssün etrafında dönen askerler.
+func _draw_orbit(g: Dictionary) -> void:
+	var b: Dictionary = state.bases[g["to"]]
+	var r: float = float(state.base_type(b)["radius"]) + 20.0
+	var n := MatchState.group_count(g)
+	var col := state.player_color(g["owner"])
+	var tex_size := Vector2(SOLDIER_R, SOLDIER_R) * 2.0
+	var spin := Time.get_ticks_msec() / 700.0
+	for i in n:
+		var ring := r + (i % 2) * 10.0
+		var a := spin + TAU * i / maxf(n, 1)
+		var p: Vector2 = b["pos"] + Vector2(cos(a), sin(a)) * ring
+		draw_texture_rect(_soldier_tex, Rect2(p - tex_size / 2.0, tex_size), false, col)
 
 
 func _draw_base(b: Dictionary) -> void:
@@ -774,6 +864,15 @@ func _draw_base(b: Dictionary) -> void:
 		if kind == "fortress" and owner == 1 and params.get("boss_kind", "") != "":
 			tc = c + Vector2(0, r + 26.0)  # sayı resmin altında
 		_text_centered(str(int(b["troops"])), tc, 30, Color.WHITE)
+	if b.has("venom_until"):
+		var vt := Time.get_ticks_msec() / 1000.0
+		for i in 6:
+			var ph := fmod(vt * 0.8 + i * 0.17, 1.0)
+			var bp := c + Vector2(cos(i * 1.9) * r * 0.7, r * 0.4 - ph * r * 1.4)
+			draw_circle(bp, 3.0 + ph * 3.0, Color(0.5, 1.0, 0.45, 0.85 * (1.0 - ph)))
+		draw_arc(c, r + 4.0, 0.0, TAU, 48, Color(0.45, 1.0, 0.45, 0.55), 3.0, true)
+	if b.get("besieged", false):
+		draw_arc(c, r + 5.0, 0.0, TAU, 48, Color(1, 0.45, 0.3, 0.85), 4.0, true)
 	if b.get("cursed", false):
 		# Lanetli üs: etrafında dönen mor zincir halkaları
 		var tt := Time.get_ticks_msec() / 1000.0
@@ -921,15 +1020,31 @@ func _build_hud() -> void:
 	_banner.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_banner.modulate.a = 0.0
 	root.add_child(_banner)
+	for l in [_banner]:
+		l.add_theme_constant_override("outline_size", 10)
+		l.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+	_banner_sub = UIKit.label("", 26, UIKit.TEXT)
+	_banner_sub.add_theme_constant_override("outline_size", 9)
+	_banner_sub.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.85))
+	_banner_sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_banner_sub.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_banner_sub.offset_left = 40
+	_banner_sub.offset_right = -40
+	_banner_sub.offset_top = 0
+	_banner.add_child(_banner_sub)
+	_banner_sub.position = Vector2(40, 58)
+	_banner_sub.size = Vector2(640, 90)
+	_banner_sub.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	if online:
 		_build_emote_ui(root)
 	_update_hud()
 
 
-func _show_banner(text: String) -> void:
+func _show_banner(text: String, sub := "", time := 2.2) -> void:
 	_banner.text = text
 	_banner.modulate.a = 1.0
-	_banner_time = 2.2
+	_banner_time = time
+	_banner_sub.text = sub
 
 
 func _update_hud() -> void:
@@ -951,6 +1066,9 @@ func _update_hud() -> void:
 		_loss_label.text = "Altın %d  (+%s/sn)   ·   %d. dalga %s" % [
 			int(p["gold"]), str(snappedf(rate, 0.1)), survival.wave + 1, _fmt_time(survival.seconds_to_next_wave(state))]
 		_loss_label.add_theme_color_override("font_color", UIKit.ACCENT)
+		if survival.rage:
+			_loss_label.text += "   ·   ÖFKE"
+			_loss_label.add_theme_color_override("font_color", Color("#ff6e6e"))
 		return
 	var over: bool = state.time > params["par"]
 	_time_label.text = "%s / %s" % [_fmt_time(state.time), _fmt_time(params["par"])]
@@ -1286,6 +1404,8 @@ func _show_survival_intro() -> void:
 		"Rakip kalesi sürekli akın yapar; ayrıca her dakika büyüyen bir saldırı dalgası gelir.",
 		"Kalenden en fazla askerin yarısı çıkar, en az %d asker içeride kalır." % GameConfig.KEEP_MIN_GARRISON,
 		"Kalen düşerse oyun biter. %d. dalgadan sonra rakip kalesinin kalkanı düşer: onu alırsan kazanırsın!" % GameConfig.CITADEL_SHIELD_WAVES,
+		"Rakibin yetenekleri dalgalarla açılır: gece, zehirli asker, devriye, kuşatma, yağma, fırtına, ateş yağmuru, ihanet.",
+		"Rakibin sadece kalesi kalırsa ÖFKE MODU başlar: dalgalar sıklaşır.",
 	]
 	for t in lines:
 		box.add_child(UIKit.label("• " + t, 24, UIKit.TEXT))

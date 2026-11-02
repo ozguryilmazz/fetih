@@ -205,8 +205,7 @@ static func skill_for_level(n: int) -> float:
 const PROD_PER_LEVEL_OVER_50 := 0.003
 ## Bot'un gözünde oyunu bitiren hedefin (hayatta kalmada kale) ek değeri.
 const DECISIVE_TARGET_VALUE := 300.0
-## Hayatta kalma: rakip sadece kalesiyle kalırsa bu dalgadan itibaren kalkanı düşer.
-const SIEGE_MIN_WAVE := 3
+
 
 
 static func level_params(n: int) -> Dictionary:
@@ -319,6 +318,40 @@ const WAVE_BASE := 20
 const WAVE_GROWTH := 9
 ## Dalgalar ilerledikçe hızlanarak büyür: + WAVE_ACCEL * (n-1)^2
 const WAVE_ACCEL := 0.5
+
+# ---------------------------------------------------------------- hayatta kalma: rakibin yetenekleri
+## [ad, açıldığı dalga, aralık sn, başlık, açıklama]
+const ABILITIES := {
+	"night": [2, 50.0, "Gece Karanlığı", "4 saniye sadece kendi üslerinin yakınını görürsün."],
+	"venom": [3, 40.0, "Zehirli Asker", "Tek bir asker üssüne zehir taşır: 10 sn saniyede 1 asker ölür. Yolda vurursan ölür!"],
+	"patrol": [4, 0.0, "Devriye", "Bir kol yollarında dolaşır; askerlerinle çarpışıp onları eritir."],
+	"siege": [5, 50.0, "Kuşatma", "Bir üssünün etrafını sarar: 10 sn o üs asker gönderemez. Takviye yollarsan kuşatmayı kırarsın."],
+	"plunder": [5, 75.0, "Yağma", "Altın madenine saldırır. Maden düşerse maç altınının %25'i gider."],
+	"storm": [6, 60.0, "Fırtına", "8 saniye askerlerin %40 yavaş yürür."],
+	"double": [6, 0.0, "Çifte Baskın", "Dalgalar artık iki ayrı yönden gelir."],
+	"meteor": [7, 45.0, "Ateş Yağmuru", "Kızaran dairedeki askerler yanar. Uyarıyı görünce kollarını çek!"],
+	"betrayal": [9, 90.0, "İhanet", "10 askerden az olan en küçük üssün düşmana geçer."],
+}
+## 8. dakikadan sonra yetenekler bu oranda sık gelir; öfke modunda iki kat.
+const ABILITY_LATE_FACTOR := 0.7
+const ABILITY_LATE_MIN := 8.0
+const NIGHT_DURATION := 4.0
+const VENOM_DURATION := 10.0
+const PATROL_TIME := 20.0
+const PATROL_REST := 10.0
+const PATROL_START := 12
+const PATROL_PER_MIN := 3
+const SIEGE_DURATION := 10.0
+const SIEGE_START := 10
+const STORM_DURATION := 8.0
+const STORM_SPEED := 0.6
+const METEOR_RADIUS := 90.0
+const METEOR_WARN := 2.0
+const METEOR_BASE_LOSS := 0.3
+const PLUNDER_SHARE := 0.25
+const BETRAYAL_BELOW := 10.0
+## Öfke modu: rakibin sadece kalesi kalınca dalgalar bu aralıkla gelir.
+const RAGE_WAVE_INTERVAL := 20.0
 ## Rakibin üretimi dakikada bu oranda artar.
 const ENEMY_RAMP_PER_MIN := 0.10
 ## Mağaza altını ödülü: dayanılan her dakika için + zafer bonusu.

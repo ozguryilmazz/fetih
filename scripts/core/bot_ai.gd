@@ -166,8 +166,8 @@ func _attack(state: MatchState, mine: Array, threats: Dictionary) -> Dictionary:
 			value += enemy_bonus
 		if t["type"] == "keep" or t["type"] == "citadel":
 			# Hayatta kalma: rakibin kalesi oyunu bitirir; gücü yetiyorsa her şeyden önemli.
-			# İlk dakikalarda oyuncuya nefes aldırır; 4. dakikadan sonra yavaş yavaş devreye girer.
-			value += GameConfig.DECISIVE_TARGET_VALUE * clampf((state.time - 240.0) / 180.0, 0.0, 1.0)
+			# İlk dakikalarda oyuncuya nefes aldırır; 6. dakikadan sonra yavaş yavaş devreye girer.
+			value += GameConfig.DECISIVE_TARGET_VALUE * clampf((state.time - 360.0) / 240.0, 0.0, 1.0)
 		var score := value - raw - far * 0.03
 		# Alınan üs elde tutulabilecek mi?
 		var leftover := sum - raw

@@ -16,6 +16,7 @@ func _initialize() -> void:
 	_test_quest_counting()
 	_test_update_compare()
 	_test_bosses_and_weather()
+	_test_survival_abilities()
 	_test_bot_matches()
 	print("SONUC: ", "HATA" if _failed else "TAMAM")
 	quit(1 if _failed else 0)
@@ -288,17 +289,15 @@ func _test_survival_rules() -> void:
 		st.events.clear()
 	_check(waves == 1 and sv.wave == 1, "60. saniyede 1. dalga geldi")
 	_check(sv.wave_size(1) == GameConfig.WAVE_BASE and sv.wave_size(10) > sv.wave_size(5) * 2, "dalgalar hızlanarak büyüyor (%d, %d, %d)" % [sv.wave_size(1), sv.wave_size(5), sv.wave_size(10)])
-	# Kuşatma: rakibin kalesinden başka üssü kalmazsa (3. dalgadan sonra) kalkan düşer.
+	# Öfke modu: rakibin kalesinden başka üssü kalmazsa dalgalar sıklaşır; kalkan 10. dalgaya kadar kalır.
 	for b in st.bases:
 		if b["owner"] == 1 and b["type"] != "citadel":
 			b["owner"] = 0
-	sv.update(st, GameConfig.SIM_DT)
-	_check(Survival.fortress_of(st, 1).get("shielded", false), "kuşatma 3. dalgadan önce kalkanı düşürmez")
-	sv.wave = GameConfig.SIEGE_MIN_WAVE
 	st.events.clear()
 	sv.update(st, GameConfig.SIM_DT)
-	_check(not Survival.fortress_of(st, 1).get("shielded", false) and st.events.any(func(e): return e["type"] == "shield_down"),
-		"kuşatma: rakibin sadece kalesi kalınca kalkan düştü")
+	_check(sv.rage and st.events.any(func(e): return e["type"] == "rage"), "öfke modu başladı")
+	_check(Survival.fortress_of(st, 1).get("shielded", false), "öfke modunda kalkan hâlâ duruyor")
+	_check(sv.next_wave - st.time <= GameConfig.RAGE_WAVE_INTERVAL + 0.1, "öfke modunda dalga %d sn içinde" % int(GameConfig.RAGE_WAVE_INTERVAL))
 
 	# Rakip bot'u, gücü yetiyorsa oyuncunun kalesine saldırır (4. dakikadan sonra).
 	var ks := MatchState.new()
@@ -493,6 +492,102 @@ func _test_bosses_and_weather() -> void:
 				_check(seen.get("erlik_drain", 0) + seen.get("erlik_take", 0) >= 4, "Erlik Han gölgesini salıyor")
 			"sahmeran":
 				_check(seen.get("poison_place", 0) >= 10 and s.hazards.size() <= 1, "Şahmeran zehir bırakıyor, eskiler kuruyor (aynı anda %d göl)" % s.hazards.size())
+
+
+func _test_survival_abilities() -> void:
+	print("Hayatta kalma: rakibin yetenekleri")
+	# Zehirli asker: varınca üs 10 sn boyunca saniyede 1 asker kaybeder.
+	var s := MatchState.new()
+	s.players = [_player(0), _player(1)]
+	s.bases = [_base(0, Vector2(100, 600), 0, 30.0), _base(1, Vector2(500, 600), 1, 50.0)]
+	_no_production(s)
+	s.spawn_venom(1, 1, 0)
+	var t0 := -1.0
+	while s.time < 30.0:
+		s.step(GameConfig.SIM_DT)
+		if t0 < 0.0 and s.bases[0].has("venom_until"):
+			t0 = s.time
+	_check(t0 > 0.0 and s.bases[0]["troops"] <= 21.0 and s.bases[0]["troops"] >= 20.0 and not s.bases[0].has("venom_until"), "zehir 10 sn'de ~10 asker öldürdü (%d kaldı)" % int(s.bases[0]["troops"]))
+	# Zehirli asker yolda vurulursa ölür.
+	s = MatchState.new()
+	s.players = [_player(0), _player(1)]
+	s.bases = [_base(0, Vector2(100, 600), 0, 30.0), _base(1, Vector2(600, 600), 1, 50.0)]
+	_no_production(s)
+	s.spawn_venom(1, 1, 0)
+	s.apply_command({"type": "send", "owner": 0, "sources": [0], "targets": [1]})
+	_run(s, 20.0)
+	_check(not s.bases[0].has("venom_until"), "yolda vurulan zehirli asker zehir bırakamadı")
+
+	# Kuşatma: üs 10 sn asker gönderemez, takviye kuşatanlarla çarpışır.
+	s = MatchState.new()
+	s.players = [_player(0), _player(1)]
+	s.bases = [_base(0, Vector2(100, 600), 0, 40.0), _base(1, Vector2(500, 600), 1, 50.0), _base(2, Vector2(100, 200), 0, 40.0)]
+	_no_production(s)
+	s.spawn_siege(1, 1, 0, 10)
+	while s.time < 12.0 and not s.bases[0].get("besieged", false):
+		s.step(GameConfig.SIM_DT)
+	_check(s.bases[0].get("besieged", false) and not MatchState.can_send_from(s.bases[0]), "kuşatılan üs asker gönderemiyor")
+	_check(is_equal_approx(s.bases[0]["troops"], 40.0), "kuşatma askerleri üsse girmedi")
+	s.apply_command({"type": "send", "owner": 0, "sources": [2], "targets": [0]})
+	var start := s.time
+	while s.time < start + 9.0 and s.bases[0].get("besieged", false):
+		s.step(GameConfig.SIM_DT)
+	_check(not s.bases[0].get("besieged", false), "takviye kuşatmayı kırdı")
+
+	# Ateş yağmuru: daire içindeki yürüyen askerler ölür.
+	s = MatchState.new()
+	s.players = [_player(0), _player(1)]
+	s.bases = [_base(0, Vector2(100, 600), 0, 40.0), _base(1, Vector2(700, 600), 1, 50.0)]
+	_no_production(s)
+	s.apply_command({"type": "send", "owner": 0, "sources": [0], "targets": [1]})
+	for i in 60:
+		s.step(GameConfig.SIM_DT)
+	var before := MatchState.group_count(s.groups[0])
+	s.meteor_strike(1, s.group_position(s.groups[0]), GameConfig.METEOR_RADIUS)
+	var after := 0 if s.groups.is_empty() else MatchState.group_count(s.groups[0])
+	_check(after < before, "ateş yağmuru kolu yaktı (%d -> %d)" % [before, after])
+
+	# Fırtına: oyuncu askerleri yavaşlar.
+	var normal := s.troop_speed(0)
+	s.players[0]["slow_until"] = s.time + 5.0
+	_check(is_equal_approx(s.troop_speed(0), normal * GameConfig.STORM_SPEED), "fırtınada askerler %%%d yavaş" % int((1.0 - GameConfig.STORM_SPEED) * 100))
+
+	# Yağma: maden düşünce altının %25'i gider.
+	s = MatchState.new()
+	s.economy = true
+	s.players = [_player(0), _player(1)]
+	s.players[0]["gold"] = 200.0
+	s.players[1]["gold"] = 0.0
+	s.bases = [_base(0, Vector2(100, 600), 0, 0.0), _base(1, Vector2(500, 600), 1, 50.0)]
+	s.bases[0]["type"] = "mine"
+	_no_production(s)
+	s.spawn_wave(1, 1, 0, 10)
+	_run(s, 20.0)
+	_check(s.bases[0]["owner"] == 1 and s.players[0]["gold"] < 160.0 and s.players[1]["gold"] >= 50.0, "maden yağmalandı (altın %d)" % int(s.players[0]["gold"]))
+
+	# Tam bir hayatta kalma maçı: bütün yetenekler sırayla devreye giriyor, devriye dönüyor.
+	var setup := Survival.create({"name": "P", "color": 1, "icon": 0, "upgrades": {}}, 9)
+	var st: MatchState = setup["state"]
+	var sv: Survival = setup["survival"]
+	var seen := {}
+	var patrol_back := false
+	while st.time < 700.0 and Survival.result(st) == "":
+		var had_patrol := st.groups.any(func(g): return g.get("patrol", false))
+		sv.update(st, GameConfig.SIM_DT)
+		st.step(GameConfig.SIM_DT)
+		if had_patrol and not st.groups.any(func(g): return g.get("patrol", false)):
+			patrol_back = true
+		for e in st.events:
+			seen[e["type"]] = true
+		st.events.clear()
+		# Oyuncu kalesi düşmesin diye (sadece yetenekleri görmek için) sürekli güçlendirilir.
+		Survival.fortress_of(st, 0)["troops"] = 200.0
+		for b in st.bases:
+			if b["owner"] == 0 and b["troops"] < 25.0 and b["id"] % 3 != 0:
+				b["troops"] = 25.0
+	for k in ["ability_intro", "darkness", "venom_sent", "patrol", "siege_sent", "storm", "meteor_warn", "meteor"]:
+		_check(seen.has(k), "maçta görüldü: %s" % k)
+	_check(patrol_back, "devriye dolaşıp kaleye döndü")
 
 
 func _test_bot_matches() -> void:

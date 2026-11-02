@@ -15,6 +15,14 @@ var _enemy_base_prod := 1.0
 var _build_timer := 0.0
 var _raid_timer := 15.0
 var _rng := RandomNumberGenerator.new()
+var rage := false
+var _timers := {}          # yetenek -> sonraki kullanıma kalan sn
+var _intro_done := {}      # yetenek -> ilk tanıtım gösterildi
+var _patrol_rest := 3.0
+var _meteor_at := -1.0
+var _meteor_pos := Vector2.ZERO
+var _betray_target := -1
+var _betray_at := -1.0
 
 
 ## player: {name, color, icon, upgrades}. Dönen: {state, bots, survival}
@@ -85,7 +93,7 @@ func update(state: MatchState, dt: float) -> void:
 
 	if state.time >= next_wave:
 		wave += 1
-		next_wave += GameConfig.WAVE_INTERVAL
+		next_wave += GameConfig.RAGE_WAVE_INTERVAL if rage else GameConfig.WAVE_INTERVAL
 		_launch_wave(state)
 		if wave == GameConfig.CITADEL_SHIELD_WAVES:
 			var cit := fortress_of(state, ENEMY)
@@ -93,14 +101,8 @@ func update(state: MatchState, dt: float) -> void:
 				cit["shielded"] = false
 				state.events.append({"type": "shield_down", "base": cit["id"], "pos": cit["pos"]})
 
-	# Kuşatma: rakibin kalesinden başka üssü kalmadıysa (3. dalgadan sonra) kalkan beklemeden düşer
-	# (yoksa oyun kilitlenir: oyuncu her yeri almış ama kaleye vuramıyor).
-	var cit_s := fortress_of(state, ENEMY)
-	if not cit_s.is_empty() and cit_s.get("shielded", false) and wave >= GameConfig.SIEGE_MIN_WAVE:
-		var others := state.bases.filter(func(b): return b["owner"] == ENEMY and b["id"] != cit_s["id"]).size()
-		if others == 0:
-			cit_s["shielded"] = false
-			state.events.append({"type": "shield_down", "base": cit_s["id"], "pos": cit_s["pos"], "siege": true})
+	_update_rage(state)
+	_update_abilities(state, dt)
 
 	_raid_timer -= dt
 	if _raid_timer <= 0.0:
@@ -141,11 +143,18 @@ func _launch_wave(state: MatchState) -> void:
 	if wave % 3 == 0:
 		# Her 3. dalga doğrudan kaleye gider.
 		target = fortress_of(state, PLAYER)
+	var sp: Vector2 = src["pos"]
+	targets.sort_custom(func(a, b): return a["pos"].distance_to(sp) < b["pos"].distance_to(sp))
 	if target.is_empty():
-		var sp: Vector2 = src["pos"]
-		targets.sort_custom(func(a, b): return a["pos"].distance_to(sp) < b["pos"].distance_to(sp))
 		target = targets[0]
-	state.spawn_wave(ENEMY, src["id"], target["id"], wave_size(wave))
+	if unlocked("double") and targets.size() >= 2:
+		# Çifte baskın: iki ayrı yönden, her biri dalganın %60'ı.
+		_intro(state, "double")
+		var other: Dictionary = targets[targets.size() / 2] if targets[targets.size() / 2]["id"] != target["id"] else targets[-1]
+		state.spawn_wave(ENEMY, src["id"], target["id"], int(wave_size(wave) * 0.6))
+		state.spawn_wave(ENEMY, src["id"], other["id"], int(wave_size(wave) * 0.6))
+	else:
+		state.spawn_wave(ENEMY, src["id"], target["id"], wave_size(wave))
 	state.events.append({"type": "wave", "n": wave, "owner": ENEMY, "pos": src["pos"]})
 
 
@@ -186,3 +195,183 @@ static func auto_build(state: MatchState, pid: int) -> Dictionary:
 	if cost > 0 and gold >= cost:
 		return {"type": "build", "owner": pid, "base": o["base"], "kind": o["kind"]}
 	return {}
+
+
+
+# ---------------------------------------------------------------- yetenekler
+
+func unlocked(key: String) -> bool:
+	return wave >= int(GameConfig.ABILITIES[key][0])
+
+
+## Bir yetenek ilk kez kullanılınca oyuna adı ve açıklaması gösterilsin.
+func _intro(state: MatchState, key: String) -> void:
+	if _intro_done.has(key):
+		return
+	_intro_done[key] = true
+	var a: Array = GameConfig.ABILITIES[key]
+	state.events.append({"type": "ability_intro", "key": key, "title": a[2], "desc": a[3]})
+
+
+## Öfke modu: rakibin kalesinden başka üssü kalmayınca dalgalar sıklaşır, yetenekler hızlanır.
+func _update_rage(state: MatchState) -> void:
+	if rage:
+		return
+	var cit := fortress_of(state, ENEMY)
+	if cit.is_empty():
+		return
+	for b in state.bases:
+		if b["owner"] == ENEMY and b["id"] != cit["id"]:
+			return
+	rage = true
+	next_wave = minf(next_wave, state.time + GameConfig.RAGE_WAVE_INTERVAL)
+	state.events.append({"type": "rage", "pos": cit["pos"]})
+
+
+func _update_abilities(state: MatchState, dt: float) -> void:
+	var cit := fortress_of(state, ENEMY)
+	if cit.is_empty():
+		return
+	var speed := 1.0
+	if state.time / 60.0 >= GameConfig.ABILITY_LATE_MIN:
+		speed /= GameConfig.ABILITY_LATE_FACTOR
+	if rage:
+		speed *= 2.0
+	for key in ["night", "venom", "siege", "plunder", "storm", "meteor", "betrayal"]:
+		if not unlocked(key):
+			continue
+		if not _timers.has(key):
+			# İlk kullanım açıldıktan kısa süre sonra; yetenekler aynı anda gelmesin diye kaydırılır.
+			_timers[key] = 4.0 + _timers.size() * 3.0
+		_timers[key] -= dt * speed
+		if _timers[key] <= 0.0 and _use(state, key, cit):
+			_timers[key] = float(GameConfig.ABILITIES[key][1])
+		elif _timers[key] <= 0.0:
+			_timers[key] = 5.0  # şartlar uygun değil; az sonra tekrar dene
+	if unlocked("patrol"):
+		_update_patrol(state, dt * speed, cit)
+	_update_meteor(state)
+	_update_betrayal(state)
+
+
+## Yeteneği kullanır; uygun hedef yoksa false.
+func _use(state: MatchState, key: String, cit: Dictionary) -> bool:
+	var mine: Array = state.bases.filter(func(b): return b["owner"] == PLAYER)
+	if mine.is_empty():
+		return false
+	match key:
+		"night":
+			state.dark_until = state.time + GameConfig.NIGHT_DURATION
+			state.events.append({"type": "darkness", "by": "survival"})
+		"venom":
+			var t: Dictionary = mine[_rng.randi() % mine.size()]
+			state.spawn_venom(ENEMY, cit["id"], t["id"])
+			state.events.append({"type": "venom_sent", "base": t["id"], "pos": t["pos"]})
+		"siege":
+			var cand := mine.filter(func(b): return not b.get("besieged", false) and b["troops"] >= 10.0)
+			if cand.is_empty():
+				return false
+			cand.sort_custom(func(a, b): return a["troops"] > b["troops"])
+			var n := GameConfig.SIEGE_START + int(state.time / 60.0) * 2
+			state.spawn_siege(ENEMY, cit["id"], cand[0]["id"], n)
+			state.events.append({"type": "siege_sent", "base": cand[0]["id"], "pos": cand[0]["pos"]})
+		"plunder":
+			var mines := mine.filter(func(b): return b["type"] == "mine")
+			if mines.is_empty():
+				return false
+			var m: Dictionary = mines[_rng.randi() % mines.size()]
+			state.spawn_wave(ENEMY, cit["id"], m["id"], int(state.base_strength(m) * 1.2) + 12)
+			state.events.append({"type": "plunder_sent", "base": m["id"], "pos": m["pos"]})
+		"storm":
+			state.players[PLAYER]["slow_until"] = state.time + GameConfig.STORM_DURATION
+			state.events.append({"type": "storm", "until": state.time + GameConfig.STORM_DURATION})
+		"meteor":
+			if _meteor_at >= 0.0:
+				return false
+			_meteor_pos = _meteor_target(state, mine)
+			_meteor_at = state.time + GameConfig.METEOR_WARN
+			state.events.append({"type": "meteor_warn", "pos": _meteor_pos, "r": GameConfig.METEOR_RADIUS, "until": _meteor_at})
+		"betrayal":
+			if _betray_target >= 0:
+				return false
+			var small := mine.filter(func(b): return b["type"] != "keep" and b["troops"] < GameConfig.BETRAYAL_BELOW)
+			if small.is_empty():
+				return false
+			small.sort_custom(func(a, b): return a["troops"] < b["troops"])
+			_betray_target = small[0]["id"]
+			_betray_at = state.time + 2.0
+			state.events.append({"type": "betray_warn", "base": _betray_target, "pos": small[0]["pos"]})
+	_intro(state, key)
+	return true
+
+
+## Ateş yağmuru hedefi: oyuncunun en kalabalık kolunun önü; kol yoksa en kalabalık üssü.
+func _meteor_target(state: MatchState, mine: Array) -> Vector2:
+	var best := {}
+	for g in state.groups:
+		if g["owner"] == PLAYER and (best.is_empty() or MatchState.group_count(g) > MatchState.group_count(best)):
+			best = g
+	if not best.is_empty() and MatchState.group_count(best) >= 8:
+		# Kol yürümeye devam edeceği için biraz ilerisine nişan alır.
+		var ahead := minf(state.front_along(best) + state.troop_speed(PLAYER) * 1.0, best["s1"])
+		return state.path_point(best, ahead)
+	mine.sort_custom(func(a, b): return a["troops"] > b["troops"])
+	return mine[0]["pos"]
+
+
+func _update_meteor(state: MatchState) -> void:
+	if _meteor_at >= 0.0 and state.time >= _meteor_at:
+		_meteor_at = -1.0
+		state.meteor_strike(ENEMY, _meteor_pos, GameConfig.METEOR_RADIUS)
+
+
+func _update_betrayal(state: MatchState) -> void:
+	if _betray_target < 0 or state.time < _betray_at:
+		return
+	var b: Dictionary = state.bases[_betray_target]
+	_betray_target = -1
+	if b["owner"] != PLAYER or b["troops"] >= GameConfig.BETRAYAL_BELOW * 1.5:
+		return  # bu arada takviye geldi: ihanet bastırıldı
+	b["owner"] = ENEMY
+	b.erase("besieged")
+	b.erase("venom_until")
+	state.events.append({"type": "betrayal", "base": b["id"], "pos": b["pos"]})
+	state.events.append({"type": "capture", "base": b["id"], "from": PLAYER, "to": ENEMY, "pos": b["pos"]})
+
+
+## Devriye: kale yakınında bekler, sonra oyuncunun yollarında dolaşıp geri döner.
+func _update_patrol(state: MatchState, dt: float, cit: Dictionary) -> void:
+	for g in state.groups:
+		if g.get("patrol", false) and g["owner"] == ENEMY:
+			return  # devriye hâlâ dışarıda
+	_patrol_rest -= dt
+	if _patrol_rest > 0.0:
+		return
+	_patrol_rest = GameConfig.PATROL_REST
+	var mine: Array = state.bases.filter(func(b): return b["owner"] == PLAYER)
+	if mine.is_empty():
+		return
+	# Ara noktalar: oyuncu üsleri arasındaki ve oyuncu üsleriyle kale arasındaki yolların ortaları.
+	var pts: Array = []
+	var cp: Vector2 = cit["pos"]
+	var speed := state.troop_speed(ENEMY)
+	var budget := speed * GameConfig.PATROL_TIME
+	var cur := cp
+	for i in 6:
+		var a: Dictionary = mine[_rng.randi() % mine.size()]
+		var other: Vector2 = cp
+		if mine.size() > 1 and _rng.randf() < 0.6:
+			other = mine[_rng.randi() % mine.size()]["pos"]
+		var wp: Vector2 = a["pos"].lerp(other, _rng.randf_range(0.35, 0.65))
+		var back := wp.distance_to(cp)
+		if cur.distance_to(wp) + back > budget:
+			break
+		budget -= cur.distance_to(wp)
+		pts.append(wp)
+		cur = wp
+	if pts.is_empty():
+		pts.append(cp.lerp(mine[0]["pos"], 0.5))
+	var n := GameConfig.PATROL_START + int(state.time / 60.0) * GameConfig.PATROL_PER_MIN
+	state.spawn_patrol(ENEMY, cit["id"], pts, n)
+	state.events.append({"type": "patrol", "pos": cp})
+	_intro(state, "patrol")

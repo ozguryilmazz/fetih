@@ -39,8 +39,17 @@ state.io tarzı, sürükle-bırak strateji oyunu. Godot 4.6, Android, 2D.
   - Rakip kalesi (250 kapasite, 2x savunma) her 12 sn'de en zayıf yakın üsse akın yapar (en fazla yarısı, en az 190 garnizon).
   - Her dakika rakip kalesinden büyüyen bir dalga gelir (her 3. dalga doğrudan kaleye). Rakip üretimi dakikada %10 artar.
   - Kalen 100 askerle başlar; en fazla askerin yarısı gider, en az 40 garnizon kalır (2,5x savunma). Kale düşerse oyun biter.
-  - Rakip kalesi 10. dalgaya kadar kalkanlı; sonra alınırsa zafer. **Kuşatma:** rakibin kalesinden başka üssü kalmazsa (3. dalgadan sonra) kalkan hemen düşer.
-  - Rakip 4. dakikadan sonra gücü yetiyorsa doğrudan oyuncunun kalesine saldırır. Ödül: dakika başına 10 mağaza altını, zaferde +200.
+  - Rakip kalesi 10. dalgaya kadar kalkanlı; sonra alınırsa zafer. Rakibin sadece kalesi kalırsa **Öfke Modu**: dalgalar 20 sn'de bir gelir, yetenekler iki kat hızlanır.
+  - Rakip 6. dakikadan sonra gücü yetiyorsa doğrudan oyuncunun kalesine saldırır.
+  - **Rakibin yetenekleri** (dalgalarla açılır, ilk gelişte adı ve açıklaması çıkar; 8. dakikadan sonra daha sık):
+    - 2. dalga **Gece Karanlığı:** 4 sn sadece kendi üslerinin yakını görünür (50 sn'de bir).
+    - 3. dalga **Zehirli Asker:** tek asker bir üsse zehir taşır, 10 sn saniyede 1 asker öldürür; yolda vurulursa ölür (40 sn'de bir).
+    - 4. dalga **Devriye:** bir kol oyuncunun yollarında ~20 sn dolaşıp kollarla çarpışır, kaleye döner, 10 sn sonra tekrar çıkar.
+    - 5. dalga **Kuşatma:** bir üssün etrafında döner, 10 sn o üs asker gönderemez; gelen takviye kuşatanlarla 1'e 1 çarpışıp kuşatmayı kırar (50 sn'de bir).
+    - 5. dalga **Yağma:** madene saldırı; maden düşerse maç altınının %25'i gider (75 sn'de bir).
+    - 6. dalga **Fırtına:** 8 sn oyuncunun askerleri %40 yavaş (60 sn'de bir). **Çifte Baskın:** dalgalar iki yönden gelir.
+    - 7. dalga **Ateş Yağmuru:** 2 sn kızaran dairedeki yürüyen askerler yanar, üslerin %30'u gider (45 sn'de bir).
+    - 9. dalga **İhanet:** 10'dan az askerli en küçük üs 2 sn sonra düşmana geçer; arada takviye gelirse bastırılır (90 sn'de bir). Ödül: dakika başına 10 mağaza altını, zaferde +200.
 - **Günlük görevler** (her gece sıfırlanır, her kademe ayrı ödül):
   - Asker öldür (yol çarpışmaları hariç): 100/200/…/700 → 10/30/50/80/100/130/150 altın
   - Yeni bölüm bitir (tekrarlar sayılmaz): 1…10 → 20/40/60/80/100/120/150/180/200/250
