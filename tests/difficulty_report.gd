@@ -13,7 +13,13 @@ func _initialize() -> void:
 	print("bölüm  bant        bot   güçl  kazanma  ort.süre  hedef  hedefte%  kayıpsız%  ort.kayıp")
 	var t0 := Time.get_ticks_msec()
 	var only_boss := args.size() > 2 and args[2] == "boss"
-	for level in range(1, GameConfig.MAX_LEVEL + 1):
+	var lo := 1
+	var hi := GameConfig.MAX_LEVEL
+	for a in args.slice(2):
+		if a.contains("-"):  # örn. 41-80: sadece bu bölümler
+			lo = int(a.split("-")[0])
+			hi = int(a.split("-")[1])
+	for level in range(lo, hi + 1):
 		if only_boss and not GameConfig.is_boss(level):
 			continue
 		var wins := 0

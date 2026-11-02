@@ -14,14 +14,17 @@ state.io tarzı, sürükle-bırak strateji oyunu. Godot 4.6, Android, 2D.
 - **Asker kolları:** askerler sıra sıra yürür, hedefe tek tek girer.
 - **Yol çarpışması:** rakip kollar yolda karşılaşınca durup birbirini eritir (15'e 15 → ikisi de yok olur). Kesişen yollarda vurulan kol ikiye bölünür.
 - **Efektler ve titreşim:** çarpışma kıvılcımı, isabet, ele geçirme dalgası, ekran sarsıntısı; titreşim Ayarlar'dan kapatılabilir.
-- **Solo mod (50 bölüm):** her maçta rastgele harita. Zorluk bantları: 1–10 Kolay-Orta, 11–20 Orta, 21–30 Orta-Zor, 31–40 Zor, 41–50 Çok Zor. 6. bölümden itibaren 2 bot.
+- **Solo mod (80 bölüm):** her maçta rastgele harita. Zorluk bantları: 1–10 Kolay-Orta, 11–20 Orta, 21–30 Orta-Zor, 31–40 Zor, 41–50 Çok Zor, 51–60 Usta, 61–70 Efsane, 71–80 Destan. 6. bölümden itibaren 2 bot; 50'den sonra bot'lar güçlendirme ve üretimle zorlaşır.
 - **Boss bölümleri:** her 10. bölüm; tek ama güçlü rakip, taçlı kale üssü (büyük, hızlı üretir, dayanıklı), çift altın. Her boss'un kodla çizilmiş resmi, girişte akan bir efsanesi ("Geç" ile atlanır) ve özel gücü var:
   - 10 **Tepegöz:** 25 sn'de bir en kalabalık üssüne bakar, askerlerin %40'ı yok olur (2 sn önce göz belirir).
   - 20 **Şahmeran:** yollarına zehir gölü bırakır, içinden geçen askerler erir; her göl 10 sn sonra kurur.
   - 30 **Karakoncolos:** ara sıra 3 sn'lik karanlık; sadece kendi üslerinin yakını görünür.
   - 40 **Zümrüdüanka:** kalesi ilk düştüğünde küllerinden doğar (15 askerle onda kalır), tek seferlik.
   - 50 **Ejderha:** maç boyunca iki kez en kalabalık üssüne ateş püskürtür (önce gölgesi düşer).
-- **Hava:** 5, 15, 25, 35, 45. bölümler her oynayışta rastgele **gece** (sadece üslerinin yakını görünür) ya da **yağmur** (bütün askerler %30 yavaş, hedef süre uzar). Haritada bulut işaretiyle gösterilir.
+  - 60 **Albastı:** 25 sn'de bir en kalabalık üssünü lanetler; 5 sn o üs üretmez ve asker gönderemez.
+  - 70 **Yelbegen:** yedi başlı dev; 30 sn'de bir kalesinden üç ayrı ordu aynı anda üç üsse saldırır.
+  - 80 **Erlik Han:** 30 sn'de bir en zayıf üssüne gölgesini salar: 15'ten az asker varsa üssü alır, yoksa 8 asker yutar.
+- **Hava:** 5, 15, 25, ... 75. bölümler her oynayışta rastgele **gece** (sadece üslerinin yakını görünür) ya da **yağmur** (bütün askerler %30 yavaş, hedef süre uzar). Haritada bulut işaretiyle gösterilir.
 - **Maç özeti:** her maç sonunda üs sayısı grafiği + en büyük saldırı, en çok üs alan, yol savaşı ustası.
 - **Yıldızlar:** ★ kazan, ★ hedef sürede kazan, ★ en fazla 2 üs kaybet. Altın: 1★ 50, 2★ 75, 3★ 100 (rekor kırmayan tekrar oyunu %20).
 - **Bot zekâsı:** savunma (düşecek üsse takviye), net değer hesabı ve sabır, risk hesabı (boşalan üssün kaybedilmesi), arkadaki askerleri cepheye toplama. Beceri bölümle artar.
@@ -36,7 +39,8 @@ state.io tarzı, sürükle-bırak strateji oyunu. Godot 4.6, Android, 2D.
   - Rakip kalesi (250 kapasite, 2x savunma) her 12 sn'de en zayıf yakın üsse akın yapar (en fazla yarısı, en az 190 garnizon).
   - Her dakika rakip kalesinden büyüyen bir dalga gelir (her 3. dalga doğrudan kaleye). Rakip üretimi dakikada %10 artar.
   - Kalen 100 askerle başlar; en fazla askerin yarısı gider, en az 40 garnizon kalır (2,5x savunma). Kale düşerse oyun biter.
-  - Rakip kalesi 10. dalgaya kadar kalkanlı; sonra alınırsa zafer. Ödül: dakika başına 10 mağaza altını, zaferde +200.
+  - Rakip kalesi 10. dalgaya kadar kalkanlı; sonra alınırsa zafer. **Kuşatma:** rakibin kalesinden başka üssü kalmazsa (3. dalgadan sonra) kalkan hemen düşer.
+  - Rakip 4. dakikadan sonra gücü yetiyorsa doğrudan oyuncunun kalesine saldırır. Ödül: dakika başına 10 mağaza altını, zaferde +200.
 - **Günlük görevler** (her gece sıfırlanır, her kademe ayrı ödül):
   - Asker öldür (yol çarpışmaları hariç): 100/200/…/700 → 10/30/50/80/100/130/150 altın
   - Yeni bölüm bitir (tekrarlar sayılmaz): 1…10 → 20/40/60/80/100/120/150/180/200/250

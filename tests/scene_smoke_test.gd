@@ -171,7 +171,7 @@ func _mouse(p: Vector2, pressed: bool) -> void:
 ## Boss ve hava bölümleri: efsane kartı, "Geç", birkaç saniye oyun (karanlık/gece/yağmur çizimi).
 func _boss_weather_check() -> bool:
 	var bad := false
-	for lv in [5, 10, 20, 30, 40, 50, 15]:
+	for lv in [5, 10, 20, 30, 40, 50, 15, 60, 70, 80, 75]:
 		root.get_node("Session").mode = "solo"
 		root.get_node("Session").level = lv
 		var game: Node2D = load("res://scenes/game.tscn").instantiate()
@@ -189,7 +189,7 @@ func _boss_weather_check() -> bool:
 		for i in 60:
 			await process_frame
 		var ok: bool = legend_ok and game.state.time > 0.2 and (not boss or game.boss_dir != null)
-		if lv % 10 == 5:
+		if GameConfig.is_weather_level(lv):
 			ok = ok and game.params["weather"] in ["night", "rain"]
 		print(("  ok   " if ok else "  HATA ") + "%d. bölüm açıldı ve oynandı (%s, legend %s, t %.2f)" % [lv, game.params.get("boss_kind", "") + game.params.get("weather", ""), legend_ok, game.state.time])
 		bad = bad or not ok

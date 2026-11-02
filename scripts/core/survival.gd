@@ -89,9 +89,18 @@ func update(state: MatchState, dt: float) -> void:
 		_launch_wave(state)
 		if wave == GameConfig.CITADEL_SHIELD_WAVES:
 			var cit := fortress_of(state, ENEMY)
-			if not cit.is_empty():
+			if not cit.is_empty() and cit.get("shielded", false):
 				cit["shielded"] = false
 				state.events.append({"type": "shield_down", "base": cit["id"], "pos": cit["pos"]})
+
+	# Kuşatma: rakibin kalesinden başka üssü kalmadıysa (3. dalgadan sonra) kalkan beklemeden düşer
+	# (yoksa oyun kilitlenir: oyuncu her yeri almış ama kaleye vuramıyor).
+	var cit_s := fortress_of(state, ENEMY)
+	if not cit_s.is_empty() and cit_s.get("shielded", false) and wave >= GameConfig.SIEGE_MIN_WAVE:
+		var others := state.bases.filter(func(b): return b["owner"] == ENEMY and b["id"] != cit_s["id"]).size()
+		if others == 0:
+			cit_s["shielded"] = false
+			state.events.append({"type": "shield_down", "base": cit_s["id"], "pos": cit_s["pos"], "siege": true})
 
 	_raid_timer -= dt
 	if _raid_timer <= 0.0:

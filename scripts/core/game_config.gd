@@ -93,7 +93,7 @@ static func road_bonus(level: int) -> int:
 
 # ---------------------------------------------------------------- solo bölümler
 
-const MAX_LEVEL := 50
+const MAX_LEVEL := 80
 ## Yıldız sayısına göre altın (0, 1, 2, 3 yıldız).
 const STAR_GOLD := [0, 50, 75, 100]
 ## Daha önce aynı/daha iyi yıldızla geçilmiş bölüm tekrar oynanırsa verilen oran.
@@ -117,7 +117,8 @@ const QUESTS := [
 # ---------------------------------------------------------------- boss'lar ve hava
 
 ## Boss bölümleri: bölüm -> boss türü
-const BOSSES := {10: "tepegoz", 20: "sahmeran", 30: "karakoncolos", 40: "zumruduanka", 50: "ejderha"}
+const BOSSES := {10: "tepegoz", 20: "sahmeran", 30: "karakoncolos", 40: "zumruduanka", 50: "ejderha",
+	60: "albasti", 70: "yelbegen", 80: "erlik"}
 const BOSS_INFO := {
 	"tepegoz": {"name": "Tepegöz",
 		"legend": "Dağların ardında tek gözlü bir dev yaşar. Oğuz çobanlarının korkulu rüyası Tepegöz, o tek gözüyle ufkun ötesini görür. Baktığı yerde ne ordu kalır ne cesaret.",
@@ -134,6 +135,15 @@ const BOSS_INFO := {
 	"ejderha": {"name": "Ejderha",
 		"legend": "Bütün efsanelerin sonunda, en yüksek kulede uyuyan yaşlı Ejderha bekler. Uyandığında gökyüzü kızıla döner ve alevleri kaleleri kül eder.",
 		"power": "Maç boyunca iki kez uçar ve en kalabalık üssüne ateş püskürterek askerlerinin çoğunu yakar. Gelmeden önce gölgesi düşer."},
+	"albasti": {"name": "Albastı",
+		"legend": "Kızıl saçlı, kemik beyazı yüzlü Albastı, ıssız sularda ve yıkık değirmenlerde yaşar. Fısıldadığı lanet, en cesur askerin bile kolunu bacağını bağlar.",
+		"power": "Her 25 saniyede en kalabalık üssünü lanetler: 5 saniye o üs asker üretemez ve asker gönderemez."},
+	"yelbegen": {"name": "Yelbegen",
+		"legend": "Yedi başlı dev Yelbegen, dağları omzunda taşır. Her başı ayrı bir yöne bakar, her ağzı ayrı bir orduya emir verir. Kükrediğinde vadiler titrer.",
+		"power": "Her 30 saniyede yedi başıyla kükrer: kalesinden üç ayrı ordu aynı anda üç üssüne birden saldırır."},
+	"erlik": {"name": "Erlik Han",
+		"legend": "Yeraltı dünyasının hükümdarı Erlik Han, demir sarayında kara tahtına oturur. Bütün efsanelerin ötesindeki son kapıyı o bekler. Gölgesi değdiği yeri kendine çeker.",
+		"power": "Her 30 saniyede en zayıf üssüne gölgesini salar: içinde 15'ten az asker varsa üssü ele geçirir, yoksa 8 askerini yutar. Önce üssün üstünde kafatası belirir."},
 }
 const TEPEGOZ_INTERVAL := 25.0
 const TEPEGOZ_FACTOR := 0.6
@@ -150,20 +160,26 @@ const DRAGON_FACTOR := 0.3
 ## Gece haritasında görüş mesafesi (kendi üslerinden).
 const NIGHT_VISION := 240.0
 const RAIN_SPEED := 0.7
+const CURSE_INTERVAL := 25.0
+const CURSE_DURATION := 5.0
+const ROAR_INTERVAL := 30.0
+const ERLIK_INTERVAL := 30.0
+const ERLIK_TAKE_BELOW := 15.0
+const ERLIK_DRAIN := 8.0
 
 
 static func boss_kind(n: int) -> String:
 	return BOSSES.get(n, "")
 
 
-## Her 5. bölüm (5, 15, 25, 35, 45) hava olaylı.
+## Her 5. bölüm (5, 15, 25, ... 75) hava olaylı.
 static func is_weather_level(n: int) -> bool:
 	return n % 10 == 5
 
 
-const BAND_NAMES := ["Kolay-Orta", "Orta", "Orta-Zor", "Zor", "Çok Zor"]
+const BAND_NAMES := ["Kolay-Orta", "Orta", "Orta-Zor", "Zor", "Çok Zor", "Usta", "Efsane", "Destan"]
 ## Zorluk eğrisi: [bölüm, bot becerisi 0..1]. Aradaki bölümler doğrusal geçer.
-const SKILL_CURVE := [[1, 0.0], [10, 0.25], [20, 0.45], [30, 0.62], [40, 0.78], [50, 0.95]]
+const SKILL_CURVE := [[1, 0.0], [10, 0.25], [20, 0.45], [30, 0.62], [40, 0.78], [50, 0.95], [51, 0.9], [80, 0.97]]
 
 
 static func is_boss(n: int) -> bool:
@@ -185,24 +201,38 @@ static func skill_for_level(n: int) -> float:
 	return 1.0
 
 
+## 50. bölümden sonra her bölümde bot üretimine eklenen pay.
+const PROD_PER_LEVEL_OVER_50 := 0.003
+## Bot'un gözünde oyunu bitiren hedefin (hayatta kalmada kale) ek değeri.
+const DECISIVE_TARGET_VALUE := 300.0
+## Hayatta kalma: rakip sadece kalesiyle kalırsa bu dalgadan itibaren kalkanı düşer.
+const SIEGE_MIN_WAVE := 3
+
+
 static func level_params(n: int) -> Dictionary:
 	var s := skill_for_level(n)
 	var boss := is_boss(n)
 	var up := clampi(int(floor((s - 0.25) * 9.0)), 0, 7)
+	# 50'den sonra: bot becerisi tavanda; zorluk güçlendirme ve üretimle artar.
+	var over := maxi(0, n - 50)
 	var p := {
 		"skill": s,
 		"boss": boss,
 		"bots": 1 if (n <= 5 or boss) else 2,
-		"bases": clampi(7 + int(n / 4.0), 7, 16),
-		"bot_upgrade": up,
-		"bot_prod_bonus": 1.0 + 0.15 * clampf((s - 0.6) / 0.4, 0.0, 1.0),
-		"neutral_min": 5 + int(n / 5.0),
-		"neutral_max": 15 + int(n / 3.0),
+		"bases": clampi(7 + int(n / 4.0), 7, 16 + (1 if n > 60 else 0)),
+		"bot_upgrade": up + int(over / 15.0),
+		"bot_prod_bonus": 1.0 + 0.15 * clampf((s - 0.6) / 0.4, 0.0, 1.0) + PROD_PER_LEVEL_OVER_50 * over,
+		"neutral_min": 5 + int(mini(n, 50) / 5.0),
+		"neutral_max": 15 + int(mini(n, 50) / 3.0),
 	}
 	if boss and boss_kind(n) == "zumruduanka":
 		# Küllerinden doğuş zaten çok güçlü; ek güçlendirme yok.
 		p["bot_upgrade"] = maxi(0, up - 2)
 		p["bot_prod_bonus"] -= 0.1
+	elif boss and boss_kind(n) == "albasti":
+		# Lanet güçlü: sadece biraz daha becerikli, ek güçlendirme yok.
+		p["skill"] = minf(1.0, s + 0.05)
+		p["bases"] = mini(p["bases"] + 1, 17)
 	elif boss:
 		p["skill"] = minf(1.0, s + 0.05)
 		p["bot_upgrade"] = up + 1

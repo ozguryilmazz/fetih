@@ -92,7 +92,7 @@ func troop_speed(pid: int) -> float:
 
 ## Bir üssün saniyedeki üretimi (sahibinin güçlendirmeleri ve kışla bonusu dahil).
 func base_growth(b: Dictionary) -> float:
-	if b["owner"] == NEUTRAL:
+	if b["owner"] == NEUTRAL or b.get("cursed", false):
 		return 0.0
 	var g: float = base_type(b)["growth"]
 	if b["type"] == "barracks":
@@ -120,7 +120,7 @@ func base_strength(b: Dictionary) -> float:
 
 ## Maden askerleri saldıramaz.
 static func can_send_from(b: Dictionary) -> bool:
-	return b["type"] != "mine"
+	return b["type"] != "mine" and not b.get("cursed", false)
 
 
 ## Bu üsten tek seferde gönderilebilecek asker sayısı. Kaleler (oyuncu kalesi ve

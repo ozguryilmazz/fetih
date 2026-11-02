@@ -47,7 +47,8 @@ class LevelMap extends Control:
 	const TOP := 60.0
 	const R := 40.0
 	const R_BOSS := 52.0
-	const BAND_TINTS := [Color("#1d3b5c"), Color("#2a4a2f"), Color("#5a4a22"), Color("#5a2e2e"), Color("#3e2a5a")]
+	const BAND_TINTS := [Color("#1d3b5c"), Color("#2a4a2f"), Color("#5a4a22"), Color("#5a2e2e"), Color("#3e2a5a"),
+		Color("#1f4f50"), Color("#5a2a4a"), Color("#4a3a1a")]
 	const DONE_COL := Color("#3a7bd5")
 	const LOCK_COL := Color("#3b4170")
 	const BOSS_COL := Color("#c0392b")

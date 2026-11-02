@@ -10,6 +10,9 @@ const COLORS := {
 	"karakoncolos": Color("#3a3150"),
 	"zumruduanka": Color("#19c39a"),
 	"ejderha": Color("#d8402f"),
+	"albasti": Color("#d1355a"),
+	"yelbegen": Color("#7a9a3c"),
+	"erlik": Color("#4b4fb0"),
 }
 
 
@@ -29,6 +32,12 @@ static func draw(ci: CanvasItem, kind: String, c: Vector2, s: float, t: float) -
 			_zumruduanka(ci, c, s, t)
 		"ejderha":
 			_ejderha(ci, c, s, t)
+		"albasti":
+			_albasti(ci, c, s, t)
+		"yelbegen":
+			_yelbegen(ci, c, s, t)
+		"erlik":
+			_erlik(ci, c, s, t)
 
 
 static func _poly(ci: CanvasItem, c: Vector2, s: float, pts: Array, col: Color) -> void:
@@ -193,6 +202,84 @@ static func _ejderha(ci: CanvasItem, c: Vector2, s: float, t: float) -> void:
 	# Dişler
 	for side in [-1, 1]:
 		_poly(ci, c, s, [[side * 0.14, 0.5], [side * 0.21, 0.5], [side * 0.17, 0.62]], Color("#fff8ec"))
+
+
+## Albastı: dalgalanan kızıl saçlar, kemik beyazı yüz, parlayan beyaz gözler.
+static func _albasti(ci: CanvasItem, c: Vector2, s: float, t: float) -> void:
+	var hair := Color("#c62848")
+	# Saç: yüzün arkasında dalgalanan uzun tutamlar
+	for k in 9:
+		var a := lerpf(-2.6, -0.54, k / 8.0)
+		var sway := sin(t * 2.0 + k) * 0.08
+		var root := c + Vector2(cos(a), sin(a)) * 0.4 * s
+		var tip := c + Vector2(cos(a) * 0.9 + sway, 0.95 + absf(cos(a)) * 0.1) * s
+		_poly(ci, Vector2.ZERO, 1.0, [[root.x - 0.1 * s, root.y], [root.x + 0.1 * s, root.y], [tip.x, tip.y]], hair.darkened(0.15 * (k % 2)))
+	_ellipse(ci, c + Vector2(0, -0.05) * s, 0.62 * s, 0.6 * s, hair)
+	# Yüz
+	_ellipse(ci, c + Vector2(0, 0.08) * s, 0.36 * s, 0.46 * s, Color("#e9e4dc"))
+	_ellipse(ci, c + Vector2(0, 0.35) * s, 0.2 * s, 0.14 * s, Color("#d9d2c6"))
+	# Perçem
+	_poly(ci, c, s, [[-0.38, -0.24], [0.38, -0.24], [0.3, -0.5], [-0.3, -0.5]], hair)
+	_poly(ci, c, s, [[-0.36, -0.26], [-0.1, -0.26], [-0.26, -0.06]], hair.darkened(0.1))
+	_poly(ci, c, s, [[0.36, -0.26], [0.1, -0.26], [0.26, -0.06]], hair.darkened(0.1))
+	# Parlayan gözler
+	var glow := 0.6 + 0.4 * sin(t * 3.0)
+	for side in [-1, 1]:
+		var e := c + Vector2(side * 0.14, 0.07) * s
+		ci.draw_circle(e, 0.09 * s, Color(1, 1, 1, 0.25 * glow))
+		_ellipse(ci, e, 0.07 * s, 0.045 * s, Color("#ffffff"))
+	# Uzun ince burun ve sinsi gülüş
+	ci.draw_line(c + Vector2(0, 0.06) * s, c + Vector2(0.02, 0.22) * s, Color("#b8afa3"), 0.03 * s, true)
+	ci.draw_arc(c + Vector2(0.02, 0.28) * s, 0.12 * s, 0.4, PI - 0.9, 10, Color("#7a1f2e"), 0.035 * s, true)
+
+
+## Yelbegen: kalın gövdeden çıkan yedi uzun boyunlu baş.
+static func _yelbegen(ci: CanvasItem, c: Vector2, s: float, t: float) -> void:
+	var skin := Color("#7a9a3c")
+	_ellipse(ci, c + Vector2(0, 0.62) * s, 0.62 * s, 0.32 * s, skin.darkened(0.3))
+	_ellipse(ci, c + Vector2(0, 0.56) * s, 0.58 * s, 0.3 * s, skin)
+	for k in 7:
+		var a := lerpf(-PI * 0.92, -PI * 0.08, k / 6.0)
+		var len := 0.8 if k == 3 else (0.66 if k % 2 == 0 else 0.74)
+		var sway := sin(t * 2.2 + k * 0.9) * 0.05
+		var base := c + Vector2(cos(a) * 0.25, 0.5 + sin(a) * 0.1) * s
+		var head := c + Vector2(cos(a) * len + sway, 0.5 + sin(a) * len) * s
+		ci.draw_line(base, head, skin.darkened(0.15), 0.12 * s, true)
+		var hr := (0.19 if k == 3 else 0.15) * s
+		ci.draw_circle(head, hr, skin.lightened(0.08))
+		ci.draw_circle(head + Vector2(0.04 * s, -0.03 * s), hr * 0.32, Color("#ffd23f"))
+		ci.draw_circle(head + Vector2(0.05 * s, -0.03 * s), hr * 0.14, Color("#1a1205"))
+		_poly(ci, head, s, [[-0.04, 0.06], [0.06, 0.06], [0.01, 0.1]], Color("#f0e2c0"))
+
+
+## Erlik Han: dikenli kara taç, boynuzlar, uzun sakal, kızıl gözler.
+static func _erlik(ci: CanvasItem, c: Vector2, s: float, t: float) -> void:
+	var dark := Color("#2b2d5c")
+	# Boynuzlar
+	for side in [-1, 1]:
+		var sd := float(side)
+		_poly(ci, c, s, [[0.2 * sd, -0.4], [0.44 * sd, -0.22], [0.86 * sd, -0.95]], Color("#cfc6b0"))
+	# Sakal
+	_poly(ci, c, s, [[-0.42, 0.1], [0.42, 0.1], [0.3, 0.7], [0.0, 0.98], [-0.3, 0.7]], Color("#46407a"))
+	# Yüz
+	_ellipse(ci, c + Vector2(0, -0.02) * s, 0.42 * s, 0.46 * s, Color("#5d62c4"))
+	_ellipse(ci, c + Vector2(-0.14, -0.18) * s, 0.14 * s, 0.1 * s, Color(1, 1, 1, 0.1))
+	# Taç
+	_poly(ci, c, s, [[-0.42, -0.3], [-0.42, -0.62], [-0.28, -0.44], [-0.14, -0.72], [0, -0.48], [0.14, -0.72], [0.28, -0.44], [0.42, -0.62], [0.42, -0.3]], dark)
+	for x in [-0.28, 0.0, 0.28]:
+		ci.draw_circle(c + Vector2(x, -0.38) * s, 0.045 * s, Color("#e53935"))
+	# Kızıl gözler
+	var glow := 0.7 + 0.3 * sin(t * 4.0)
+	for side in [-1, 1]:
+		var e := c + Vector2(side * 0.16, -0.06) * s
+		ci.draw_circle(e, 0.11 * s, Color(1, 0.1, 0.1, 0.25 * glow))
+		_poly(ci, e, s, [[-0.09, -0.02 * side], [0.09, 0.02 * side], [0.0, 0.05]], Color("#ff3b30"))
+	# Kaşlar
+	_poly(ci, c, s, [[-0.32, -0.2], [-0.06, -0.12], [-0.08, -0.2]], dark)
+	_poly(ci, c, s, [[0.32, -0.2], [0.06, -0.12], [0.08, -0.2]], dark)
+	# Bıyık
+	ci.draw_arc(c + Vector2(-0.12, 0.2) * s, 0.12 * s, PI * 1.1, PI * 1.9, 10, Color("#1b1b2f"), 0.05 * s, true)
+	ci.draw_arc(c + Vector2(0.12, 0.2) * s, 0.12 * s, PI * 1.1, PI * 1.9, 10, Color("#1b1b2f"), 0.05 * s, true)
 
 
 ## Efsane kartında kullanılan büyük portre.

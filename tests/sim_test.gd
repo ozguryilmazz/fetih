@@ -288,6 +288,35 @@ func _test_survival_rules() -> void:
 		st.events.clear()
 	_check(waves == 1 and sv.wave == 1, "60. saniyede 1. dalga geldi")
 	_check(sv.wave_size(1) == GameConfig.WAVE_BASE and sv.wave_size(10) > sv.wave_size(5) * 2, "dalgalar hızlanarak büyüyor (%d, %d, %d)" % [sv.wave_size(1), sv.wave_size(5), sv.wave_size(10)])
+	# Kuşatma: rakibin kalesinden başka üssü kalmazsa (3. dalgadan sonra) kalkan düşer.
+	for b in st.bases:
+		if b["owner"] == 1 and b["type"] != "citadel":
+			b["owner"] = 0
+	sv.update(st, GameConfig.SIM_DT)
+	_check(Survival.fortress_of(st, 1).get("shielded", false), "kuşatma 3. dalgadan önce kalkanı düşürmez")
+	sv.wave = GameConfig.SIEGE_MIN_WAVE
+	st.events.clear()
+	sv.update(st, GameConfig.SIM_DT)
+	_check(not Survival.fortress_of(st, 1).get("shielded", false) and st.events.any(func(e): return e["type"] == "shield_down"),
+		"kuşatma: rakibin sadece kalesi kalınca kalkan düştü")
+
+	# Rakip bot'u, gücü yetiyorsa oyuncunun kalesine saldırır (4. dakikadan sonra).
+	var ks := MatchState.new()
+	ks.players = [_player(0), _player(1)]
+	ks.bases = [_base(0, Vector2(100, 600), 0, 60.0), _base(1, Vector2(400, 600), 1, 600.0), _base(2, Vector2(600, 200), 0, 5.0)]
+	ks.bases[0]["type"] = "keep"
+	_no_production(ks)
+	ks.time = 500.0
+	var kb := BotAI.new(1, 0.85, 3)
+	var hit_keep := false
+	for i in 120:
+		for c in kb.update(ks, GameConfig.SIM_DT):
+			if c.get("type") == "send" and c["targets"].has(0):
+				hit_keep = true
+			ks.apply_command(c)
+		ks.step(GameConfig.SIM_DT)
+	_check(hit_keep, "rakip, gücü yetince oyuncunun kalesine saldırıyor")
+
 	Survival.fortress_of(st, 0)["owner"] = 1
 	_check(Survival.result(st) == "lose", "kale düşünce oyun biter")
 
@@ -359,12 +388,19 @@ func _test_update_compare() -> void:
 
 func _test_bosses_and_weather() -> void:
 	print("Boss'lar ve hava")
-	var kinds := {10: "tepegoz", 20: "sahmeran", 30: "karakoncolos", 40: "zumruduanka", 50: "ejderha"}
+	var kinds := {10: "tepegoz", 20: "sahmeran", 30: "karakoncolos", 40: "zumruduanka", 50: "ejderha",
+		60: "albasti", 70: "yelbegen", 80: "erlik"}
 	var pl := {"name": "P", "color": 1, "icon": 0, "upgrades": {}}
 	for lv in kinds:
 		var st := LevelSetup.create(lv, pl, 5)
 		_check(st["params"]["boss_kind"] == kinds[lv] and st["boss"] != null, "%d. bölüm boss'u: %s" % [lv, GameConfig.BOSS_INFO[kinds[lv]]["name"]])
 	_check(LevelSetup.create(11, pl, 5)["boss"] == null, "boss olmayan bölümde boss yeteneği yok")
+	_check(GameConfig.MAX_LEVEL == 80 and GameConfig.band_name(75) == "Destan", "80 bölüm, 71-80 Destan")
+	var cs := MatchState.new()
+	var cb := {"id": 0, "pos": Vector2.ZERO, "owner": 0, "troops": 10.0, "type": "normal", "cursed": true}
+	cs.players = [_player(0)]
+	cs.bases = [cb]
+	_check(not MatchState.can_send_from(cb) and cs.base_growth(cb) == 0.0, "lanetli üs asker göndermez ve üretmez")
 	var weather := {}
 	for lv in range(1, GameConfig.MAX_LEVEL + 1):
 		for sd in 6:
@@ -372,7 +408,7 @@ func _test_bosses_and_weather() -> void:
 			if w != "":
 				weather[lv] = weather.get(lv, {})
 				weather[lv][w] = true
-	_check(weather.keys() == [5, 15, 25, 35, 45], "hava sadece 5, 15, 25, 35, 45. bölümlerde (%s)" % [weather.keys()])
+	_check(weather.keys() == [5, 15, 25, 35, 45, 55, 65, 75], "hava sadece 5, 15, ... 75. bölümlerde (%s)" % [weather.keys()])
 	_check(weather.values().all(func(v): return v.size() == 2), "her hava bölümünde gece de yağmur da çıkabiliyor")
 
 	# Yağmur: askerler %30 yavaş
@@ -424,7 +460,7 @@ func _test_bosses_and_weather() -> void:
 	_check(s.hazards.is_empty(), "zehir %d sn sonra kurudu" % int(GameConfig.POISON_DURATION))
 
 	# Tepegöz / Ejderha / Karakoncolos yönetmenleri
-	for kind in ["tepegoz", "ejderha", "karakoncolos", "sahmeran"]:
+	for kind in ["tepegoz", "ejderha", "karakoncolos", "sahmeran", "albasti", "yelbegen", "erlik"]:
 		s = MatchState.new()
 		s.players = [_player(0), _player(1)]
 		s.bases = [_base(0, Vector2(100, 400), 0, 100.0), _base(1, Vector2(600, 400), 1, 50.0), _base(2, Vector2(300, 900), 0, 40.0)]
@@ -448,6 +484,13 @@ func _test_bosses_and_weather() -> void:
 			"karakoncolos":
 				_check(seen.get("darkness", 0) >= 10, "Karakoncolos geceyi çağırıyor (%d kez)" % seen.get("darkness", 0))
 				_check(is_equal_approx(GameConfig.DARK_DURATION, 3.0), "karanlık 3 saniye")
+			"albasti":
+				_check(seen.get("curse", 0) >= 4 and seen.get("curse_end", 0) >= seen.get("curse", 0) - 1, "Albastı lanetliyor ve lanet bitiyor (%d kez)" % seen.get("curse", 0))
+				_check(not s.bases[0].get("cursed", false) or not s.bases[2].get("cursed", false), "aynı anda tek üs lanetli")
+			"yelbegen":
+				_check(seen.get("roar", 0) >= 4, "Yelbegen kükreyip ordu yolluyor (%d kez)" % seen.get("roar", 0))
+			"erlik":
+				_check(seen.get("erlik_drain", 0) + seen.get("erlik_take", 0) >= 4, "Erlik Han gölgesini salıyor")
 			"sahmeran":
 				_check(seen.get("poison_place", 0) >= 10 and s.hazards.size() <= 1, "Şahmeran zehir bırakıyor, eskiler kuruyor (aynı anda %d göl)" % s.hazards.size())
 

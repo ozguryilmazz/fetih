@@ -291,18 +291,43 @@ func _consume_events() -> void:
 			"shield_down":
 				_rings.append({"p": e["pos"], "life": 0.9, "max": 0.9, "col": Color("#8ecbff"), "r0": 60.0, "r1": 200.0})
 				_burst(e["pos"], Color("#8ecbff"), 30, 260.0, 0.8, 5.0)
-				_show_banner("Düşman kalesinin kalkanı düştü!")
+				_show_banner("Kuşatma! Kalkan düştü, kaleyi al!" if e.get("siege", false) else "Düşman kalesinin kalkanı düştü!")
 				_vibrate(120, 0.8)
 			"wave":
 				_show_banner("%d. dalga geliyor!" % e["n"])
 				_rings.append({"p": e["pos"], "life": 0.7, "max": 0.7, "col": state.player_color(e["owner"]), "r0": 60.0, "r1": 160.0})
 				_shake(5.0, 0.2)
 				_vibrate(60, 0.7)
-			"gaze_warn", "dragon_warn":
-				var k: String = "gaze" if e["type"] == "gaze_warn" else "dragon"
+			"gaze_warn", "dragon_warn", "curse_warn", "erlik_warn":
+				var k: String = {"gaze_warn": "gaze", "dragon_warn": "dragon", "curse_warn": "curse", "erlik_warn": "skull"}[e["type"]]
 				_warns.append({"base": e["base"], "kind": k, "until": state.time + BossDirector.WARN})
-				_show_banner("Tepegöz sana bakıyor!" if k == "gaze" else "Ejderha geliyor!")
+				_show_banner({"gaze": "Tepegöz sana bakıyor!", "dragon": "Ejderha geliyor!",
+					"curse": "Albastı lanet fısıldıyor!", "skull": "Erlik Han'ın gölgesi geliyor!"}[k])
 				_vibrate(40, 0.4)
+			"curse":
+				_warns = _warns.filter(func(w): return w["kind"] != "curse")
+				_flames.append({"p": e["pos"], "life": 0.8, "max": 0.8, "col": Color("#b04cff"), "r": 110.0})
+				_burst(e["pos"], Color("#d18cff"), 20, 200.0, 0.7, 4.0)
+				_show_banner("Lanetlendi! 5 sn asker yok.")
+				_shake(6.0, 0.25)
+				_vibrate(100, 0.8)
+			"curse_end":
+				_rings.append({"p": e["pos"], "life": 0.5, "max": 0.5, "col": Color("#d18cff"), "r0": 30.0, "r1": 90.0})
+			"roar_warn":
+				_show_banner("Yelbegen'in yedi başı kükrüyor!")
+				_shake(5.0, 0.6)
+				_vibrate(80, 0.6)
+			"roar":
+				_rings.append({"p": e["pos"], "life": 0.9, "max": 0.9, "col": Color("#b5d86a"), "r0": 50.0, "r1": 260.0})
+				_shake(10.0, 0.4)
+			"erlik_take", "erlik_drain":
+				_warns = _warns.filter(func(w): return w["kind"] != "skull")
+				_flames.append({"p": e["pos"], "life": 1.0, "max": 1.0, "col": Color("#4b4fb0"), "r": 130.0})
+				_burst(e["pos"], Color("#7d82ff"), 26, 220.0, 0.8, 4.5)
+				if e["type"] == "erlik_take":
+					_show_banner("Erlik Han üssünü yeraltına çekti!")
+				_shake(8.0, 0.3)
+				_vibrate(140, 0.9)
 			"gaze":
 				_warns = _warns.filter(func(w): return w["kind"] != "gaze")
 				_flames.append({"p": e["pos"], "life": 0.8, "max": 0.8, "col": Color("#ff5252"), "r": 120.0})
@@ -628,6 +653,22 @@ func _draw_warns() -> void:
 		var c: Vector2 = b["pos"]
 		var r: float = state.base_type(b)["radius"]
 		var k := clampf(1.0 - (w["until"] - state.time) / BossDirector.WARN, 0.0, 1.0)
+		if w["kind"] == "curse":
+			var pulse := 0.5 + 0.5 * sin(t * 10.0)
+			draw_arc(c, r + 12.0 + pulse * 5.0, 0.0, TAU, 56, Color(0.7, 0.3, 1.0, 0.5 + 0.4 * k), 5.0, true)
+			for i in 6:
+				var a := t * 2.0 + TAU * i / 6.0
+				draw_circle(c + Vector2(cos(a), sin(a)) * (r + 26.0), 4.0 + 2.0 * k, Color(0.82, 0.55, 1.0, 0.8))
+			continue
+		if w["kind"] == "skull":
+			var sk := c + Vector2(0, -r - 44.0)
+			var sc := 0.6 + 0.4 * k
+			draw_circle(sk, 24.0 * sc, Color("#e8e6f5"))
+			draw_rect(Rect2(sk + Vector2(-13, 12) * sc, Vector2(26, 14) * sc), Color("#e8e6f5"))
+			draw_circle(sk + Vector2(-9, 0) * sc, 7.0 * sc, Color("#2b2d5c"))
+			draw_circle(sk + Vector2(9, 0) * sc, 7.0 * sc, Color("#2b2d5c"))
+			draw_arc(c, r + 14.0, 0.0, TAU, 56, Color(0.45, 0.47, 1.0, 0.4 + 0.5 * k), 5.0, true)
+			continue
 		if w["kind"] == "gaze":
 			var pulse := 0.5 + 0.5 * sin(t * 14.0)
 			draw_arc(c, r + 14.0 + pulse * 6.0, 0.0, TAU, 56, Color(1.0, 0.25, 0.25, 0.5 + 0.4 * k), 5.0, true)
@@ -733,6 +774,12 @@ func _draw_base(b: Dictionary) -> void:
 		if kind == "fortress" and owner == 1 and params.get("boss_kind", "") != "":
 			tc = c + Vector2(0, r + 26.0)  # sayı resmin altında
 		_text_centered(str(int(b["troops"])), tc, 30, Color.WHITE)
+	if b.get("cursed", false):
+		# Lanetli üs: etrafında dönen mor zincir halkaları
+		var tt := Time.get_ticks_msec() / 1000.0
+		for i in 10:
+			var a := tt * 1.5 + TAU * i / 10.0
+			draw_arc(c + Vector2(cos(a), sin(a)) * (r + 6.0), 6.0, 0.0, TAU, 10, Color(0.8, 0.5, 1.0, 0.9), 3.0, true)
 	if b.get("rebirth", false):
 		var fl := 0.5 + 0.5 * sin(Time.get_ticks_msec() / 260.0)
 		draw_arc(c, r + 22.0, 0.0, TAU, 56, Color(0.1, 0.76, 0.6, 0.25 + 0.25 * fl), 4.0, true)
